@@ -44,8 +44,7 @@ import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} f
 import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ====== TROQUE AQUI ======
-const firebaseConfig={apiKey:"COLE_AQUI",authDomain:"COLE_AQUI",projectId:"COLE_AQUI",appId:"COLE_AQUI"};
-const ADMIN_EMAIL="ryansantiagov@gmail.com";
+const firebaseConfig={apiKey:"AIzaSyAuzIOxZuc54kjU-3fw8Vt_wM09D9FuFI4",authDomain:"escola-alexandre.firebaseapp.com",projectId:"escola-alexandre",appId:"1:186501325334:web:5b76153cdd1456beda0b37"};
 const ESCOLA="Escola de Música";
 const INSTRUMENTOS=["Violão","Teclado","Bateria","Canto","Baixo","Violino"];
 // =========================
@@ -61,7 +60,7 @@ let mes=new Date().toISOString().slice(0,7);
 onAuthStateChanged(auth,async u=>{
   user=u;msg="";
   if(!u)return draw();
-  isAdmin=u.email===ADMIN_EMAIL;
+  try{isAdmin=(await getDoc(doc(db,"admins",u.email.toLowerCase()))).exists()}catch(e){isAdmin=false}
   try{isAdmin?await loadAdmin():await loadMe()}catch(e){msg="Não foi possível carregar os dados. Verifique as regras do Firestore.";console.error(e)}
   draw();
 });

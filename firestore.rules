@@ -1,11 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
-    // TROQUE pelo e-mail Google do pastor
+    // Administradores = documentos na coleção "admins" (ID = e-mail em minúsculas),
+    // criados à mão no painel do Firebase.
     function admin() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email == 'troque@invalido.example';
+        && exists(/databases/$(db)/documents/admins/$(request.auth.token.email));
+    }
+    match /admins/{email} {
+      allow read: if request.auth != null && request.auth.token.email == email;
     }
     match /students/{uid} {
       allow read: if admin() || (request.auth != null && request.auth.uid == uid);
