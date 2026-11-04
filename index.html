@@ -75,7 +75,7 @@ async function loadMe(){
   }
 }
 function draw(){
-  if(!user){app.innerHTML=`<h1>${ESCOLA}</h1><div class="staff"></div><p>Entre com sua conta Google para se cadastrar ou acompanhar suas aulas.</p><button class="btn" data-a="login">Entrar com Google</button>`;return}
+  if(!user){app.innerHTML=`<h1>${ESCOLA}</h1><div class="staff"></div><p>Entre com sua conta Google para se cadastrar ou acompanhar suas aulas.</p>${msg?`<p class="err">${msg}</p>`:""}<button class="btn" data-a="login">Entrar com Google</button>`;return}
   const top=`<div class="top"><span>${esc(user.displayName||user.email)}</span><button class="lnk" data-a="sair">Sair</button></div>`;
   const err=msg?`<p class="err">${msg}</p>`:"";
   app.innerHTML=top+err+(isAdmin?adminView():studentView());
@@ -127,7 +127,7 @@ app.addEventListener("click",async e=>{
     if(a==="set"){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
     if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
     if(a==="pay"){const k=id+"_"+mes,v=!pays[k];await setDoc(doc(db,"payments",k),{uid:id,mes,pago:v});pays[k]=v;draw()}
-  }catch(er){msg="Algo deu errado. Tente de novo.";console.error(er);draw()}
+  }catch(er){msg="Algo deu errado ("+(er.code||"erro")+"). Tente de novo.";console.error(er);draw()}
 });
 app.addEventListener("change",e=>{if(e.target.id==="mes"&&e.target.value){mes=e.target.value;draw()}});
 app.addEventListener("submit",async e=>{
