@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Escola de Música</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f7f6;--card:#fff;--ink:#12302f;--mut:#5b7170;--acc:#0f5c59;--gold:#c8961e;--line:#d5e0de;--ok:#1b7a3d;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1f1e;--card:#15302e;--ink:#e8f1ef;--mut:#9ab5b2;--acc:#4fc3bc;--gold:#e3b341;--line:#264846;--ok:#5fd18a;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Bricolage Grotesque',system-ui,sans-serif;line-height:1.5;padding-top:env(safe-area-inset-top,0px)}
+main{max-width:680px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:2rem;font-weight:800;margin:6px 0;letter-spacing:-.02em}
+h2{font-size:1.15rem;margin:20px 0 10px}
+p{margin:0 0 12px;color:var(--mut)}
+.staff{height:30px;margin:12px 0;background:repeating-linear-gradient(var(--gold) 0 2px,transparent 2px 7px);opacity:.7}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.9rem;color:var(--mut)}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin:14px 0}
+.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--mut);font:inherit;font-weight:600;padding:8px 14px;border-radius:20px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--acc);color:var(--bg);border-color:var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+form,.box{display:grid;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+label{font-size:.9rem;font-weight:600}
+input,select{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+input[type=checkbox]{width:auto;margin-right:8px}
+.btn{background:var(--acc);color:var(--bg);border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}
+.btn.sec{background:none;color:var(--acc);border:1px solid var(--acc);padding:7px 12px}
+.btn.bad{background:none;color:var(--bad);border:1px solid var(--bad);padding:7px 12px}
+.lnk{background:none;border:0;color:var(--mut);cursor:pointer;font:inherit;text-decoration:underline}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.row small{display:block;color:var(--mut)}
+.acts{display:flex;gap:6px;flex-shrink:0}
+.tag{font-weight:700}.ok{color:var(--ok)}.no{color:var(--bad)}
+.empty{border:1px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--mut)}
+.err{color:var(--bad);font-weight:600}
+</style>
+</head>
+<body>
+<main><div id="app"><p>Carregando…</p></div></main>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+// ====== TROQUE AQUI ======
+const firebaseConfig={apiKey:"COLE_AQUI",authDomain:"COLE_AQUI",projectId:"COLE_AQUI",appId:"COLE_AQUI"};
+const ADMIN_EMAIL="PASTOR@gmail.com";
+const ESCOLA="Escola de Música";
+const INSTRUMENTOS=["Violão","Teclado","Bateria","Canto","Baixo","Violino"];
+// =========================
+
+const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore();
+const $=s=>document.querySelector(s),app=$("#app");
+const esc=s=>{const d=document.createElement("div");d.textContent=s??"";return d.innerHTML};
+const br=d=>d?d.split("-").reverse().join("/"):"";
+const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,msg="";
+let mes=new Date().toISOString().slice(0,7);
+
+onAuthStateChanged(auth,async u=>{
+  user=u;msg="";
+  if(!u)return draw();
+  isAdmin=u.email===ADMIN_EMAIL;
+  try{isAdmin?await loadAdmin():await loadMe()}catch(e){msg="Não foi possível carregar os dados. Verifique as regras do Firestore.";console.error(e)}
+  draw();
+});
+async function loadAdmin(){
+  alunos=(await getDocs(collection(db,"students"))).docs.map(d=>({id:d.id,...d.data()}));
+  pays={};(await getDocs(collection(db,"payments"))).forEach(d=>pays[d.id]=d.data().pago);
+}
+async function loadMe(){
+  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};
+  if(me&&me.status==="aprovado"){
+    (await getDocs(query(collection(db,"payments"),where("uid","==",user.uid)))).forEach(d=>pays[d.id]=d.data().pago);
+  }
+}
+function draw(){
+  if(!user){app.innerHTML=`<h1>${ESCOLA}</h1><div class="staff"></div><p>Entre com sua conta Google para se cadastrar ou acompanhar suas aulas.</p><button class="btn" data-a="login">Entrar com Google</button>`;return}
+  const top=`<div class="top"><span>${esc(user.displayName||user.email)}</span><button class="lnk" data-a="sair">Sair</button></div>`;
+  const err=msg?`<p class="err">${msg}</p>`:"";
+  app.innerHTML=top+err+(isAdmin?adminView():studentView());
+}
+/* ---------- ALUNO ---------- */
+function studentView(){
+  if(!me)return `<h1>Cadastro</h1><p>Preencha seus dados. O pastor vai aprovar seu cadastro.</p>
+  <form id="cad"><div><label for="nome">Nome completo</label><input id="nome" required minlength="5" value="${esc(user.displayName)}"></div>
+  <div><label for="nasc">Data de nascimento</label><input id="nasc" type="date" required></div>
+  <div><label for="tel">WhatsApp</label><input id="tel" type="tel" required placeholder="92 99999-9999"></div>
+  <div><label for="inst">Instrumento</label><select id="inst">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div>
+  <label><input id="ok" type="checkbox" required>Autorizo o uso dos meus dados pela escola apenas para organizar aulas, aniversários e pagamentos.</label>
+  <button class="btn" type="submit">Enviar cadastro</button></form>`;
+  if(me.status==="pendente")return `<h1>Cadastro enviado</h1><div class="box"><b>Aguardando aprovação do pastor.</b><p>Assim que ele aprovar, você poderá ver suas informações aqui. Volte mais tarde.</p></div>`;
+  if(me.status==="recusado")return `<h1>Cadastro não aprovado</h1><div class="box"><p>Fale com o pastor para entender o motivo.</p></div>`;
+  const ms=Object.keys(pays).filter(k=>k.startsWith(user.uid)).map(k=>k.split("_")[1]).sort().reverse();
+  return `<h1>Olá, ${esc(me.nome.split(" ")[0])}</h1><div class="staff"></div>
+  <div class="box"><span><b>Instrumento:</b> ${esc(me.instrumento)}</span><span><b>Nascimento:</b> ${br(me.nascimento)}</span></div>
+  <h2>Pagamentos</h2>${ms.length?ms.map(m=>`<div class="row"><span>${nomeMes(m)}</span><span class="tag ${pays[user.uid+"_"+m]?"ok":"no"}">${pays[user.uid+"_"+m]?"Pago":"Pendente"}</span></div>`).join(""):`<div class="empty">Nenhum registro de pagamento ainda.</div>`}`;
+}
+const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
+/* ---------- PASTOR ---------- */
+function adminView(){
+  const T=[["pend","Pendentes"],["alunos","Alunos"],["aniv","Aniversários"],["pag","Pagamentos"]];
+  const pend=alunos.filter(a=>a.status==="pendente"),apr=alunos.filter(a=>a.status==="aprovado").sort((a,b)=>a.nome.localeCompare(b.nome));
+  const tels=alunos.map(a=>(a.tel||"").replace(/\D/g,""));
+  const dup=a=>tels.filter(t=>t===(a.tel||"").replace(/\D/g,"")).length>1?` <b class="no">· WhatsApp repetido</b>`:"";
+  const wa=a=>`<a href="https://wa.me/55${(a.tel||"").replace(/\D/g,"")}" target="_blank" rel="noopener">${esc(a.tel)}</a>`;
+  let body="";
+  if(tab==="pend")body=pend.length?pend.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>${esc(a.instrumento)} · ${br(a.nascimento)} · ${wa(a)}${dup(a)}</small><small>${esc(a.email)}</small></div><div class="acts"><button class="btn sec" data-a="set" data-id="${a.id}" data-s="aprovado">Aprovar</button><button class="btn bad" data-a="set" data-id="${a.id}" data-s="recusado">Recusar</button></div></div>`).join(""):`<div class="empty">Nenhum cadastro esperando aprovação.</div>`;
+  if(tab==="alunos")body=apr.length?apr.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>${esc(a.instrumento)} · ${wa(a)}</small></div><button class="lnk" data-a="del" data-id="${a.id}">Remover</button></div>`).join(""):`<div class="empty">Nenhum aluno aprovado ainda.</div>`;
+  if(tab==="aniv"){
+    const hoje=new Date(),m=hoje.getMonth()+1,l=apr.filter(a=>+a.nascimento.split("-")[1]===m).sort((a,b)=>a.nascimento.slice(8)-b.nascimento.slice(8));
+    body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=hoje.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===hoje.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes neste mês.</div>`);
+  }
+  if(tab==="pag"){
+    const pg=apr.filter(a=>pays[a.id+"_"+mes]).length;
+    body=`<div class="box"><label for="mes">Mês</label><input id="mes" type="month" value="${mes}"><span>${pg} de ${apr.length} pagaram</span></div><h2>${nomeMes(mes)}</h2>`+(apr.length?apr.map(a=>{const p=!!pays[a.id+"_"+mes];return `<div class="row"><div><b>${esc(a.nome)}</b><small class="${p?"ok":"no"}">${p?"Pago":"Pendente"}</small></div><button class="btn sec" data-a="pay" data-id="${a.id}">${p?"Desfazer":"Marcar pago"}</button></div>`}).join(""):`<div class="empty">Aprove alunos para controlar pagamentos.</div>`);
+  }
+  return `<h1>Painel do pastor</h1><div class="tabs" role="tablist">${T.map(t=>`<button role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${tab===t[0]}">${t[1]}${t[0]==="pend"&&pend.length?` (${pend.length})`:""}</button>`).join("")}</div>${body}`;
+}
+/* ---------- EVENTOS ---------- */
+app.addEventListener("click",async e=>{
+  const b=e.target.closest("[data-a]");if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+  try{
+    if(a==="login")await signInWithPopup(auth,new GoogleAuthProvider());
+    if(a==="sair")await signOut(auth);
+    if(a==="tab"){tab=b.dataset.t;draw()}
+    if(a==="set"){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
+    if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
+    if(a==="pay"){const k=id+"_"+mes,v=!pays[k];await setDoc(doc(db,"payments",k),{uid:id,mes,pago:v});pays[k]=v;draw()}
+  }catch(er){msg="Algo deu errado. Tente de novo.";console.error(er);draw()}
+});
+app.addEventListener("change",e=>{if(e.target.id==="mes"&&e.target.value){mes=e.target.value;draw()}});
+app.addEventListener("submit",async e=>{
+  if(e.target.id!=="cad")return;e.preventDefault();
+  const d={nome:$("#nome").value.trim(),nascimento:$("#nasc").value,tel:$("#tel").value.trim(),instrumento:$("#inst").value,email:user.email,status:"pendente",criadoEm:serverTimestamp()};
+  try{await setDoc(doc(db,"students",user.uid),d);me=d;draw()}catch(er){msg="Não foi possível enviar o cadastro. Tente de novo.";console.error(er);draw()}
+});
+</script>
+</body>
+</html>

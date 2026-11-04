@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // TROQUE pelo e-mail Google do pastor
+    function admin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'PASTOR@gmail.com';
+    }
+    match /students/{uid} {
+      allow read: if admin() || (request.auth != null && request.auth.uid == uid);
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.status == 'pendente';
+      allow update, delete: if admin();
+    }
+    match /payments/{id} {
+      allow read: if admin() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow write: if admin();
+    }
+  }
+}
