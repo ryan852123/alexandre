@@ -5,7 +5,7 @@ service cloud.firestore {
     function admin() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email == 'PASTOR@gmail.com';
+        && request.auth.token.email == 'troque@invalido.example';
     }
     match /students/{uid} {
       allow read: if admin() || (request.auth != null && request.auth.uid == uid);
