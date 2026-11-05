@@ -19,8 +19,8 @@ h2{font-size:1.15rem;margin:20px 0 10px}
 p{margin:0 0 12px;color:var(--mut)}
 .staff{height:30px;margin:12px 0;background:repeating-linear-gradient(var(--gold) 0 2px,transparent 2px 7px);opacity:.7}
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.9rem;color:var(--mut)}
-.tabs{display:flex;gap:6px;overflow-x:auto;margin:14px 0}
-.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--mut);font:inherit;font-weight:600;padding:8px 14px;border-radius:20px;cursor:pointer}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+.tabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--mut);font:inherit;font-weight:600;font-size:.92rem;padding:7px 12px;border-radius:20px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:var(--acc);color:var(--bg);border-color:var(--acc)}
 button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 form,.box{display:grid;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
@@ -47,7 +47,6 @@ a{color:var(--acc)}
 .i-a,.i-e,.i-s{display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 1px}
 .i-a{background:var(--acc)}.i-e{background:var(--gold)}.i-s{background:var(--bad)}
 .cal button.sel .i-a,.cal button.sel .i-e,.cal button.sel .i-s{background:var(--bg)}
-.tabs{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .paper{background:#fff;color:#111;border:2px solid #1d4ed8;border-radius:12px;overflow:hidden;margin:12px 0}
 .paper .hd{background:#1d4ed8;color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .paper .hd b{font-size:1.2rem}
@@ -95,6 +94,9 @@ async function loadAdmin(){
   alunos=await all("students");classes=await all("classes");mats=await all("enrollments");teachers=await all("teachers");notices=await all("notices");
   att={};(await all("attendance")).forEach(a=>att[a.id]=a);
   pays={};(await all("payments")).forEach(p=>pays[p.id]=p);
+  const ids=new Set(alunos.map(a=>a.id));
+  for(const m of mats.filter(m=>!ids.has(m.uid))){try{await deleteDoc(doc(db,"enrollments",m.id))}catch(e){console.error(e)}}
+  mats=mats.filter(m=>ids.has(m.uid));
 }
 async function loadMe(){
   const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];att={};notices=[];
@@ -252,7 +254,7 @@ function adminView(){
   }
   if(tab==="fin"){
     const l=finList(),tot=l.reduce((t,p)=>t+Number(p.valor||0),0),pf={};l.forEach(p=>pf[p.forma]=(pf[p.forma]||0)+Number(p.valor||0));
-    body=`<div class="box"><label for="fmes">Recebimentos feitos em</label><input id="fmes" type="month" value="${fmes}"><span><b>Total: ${brl(tot)}</b>${Object.keys(pf).map(k=>` · ${esc(k)} ${brl(pf[k])}`).join("")}</span><button class="btn sec" data-a="csv">Exportar planilha (CSV)</button></div><h2>Recebimentos</h2>`+(l.length?l.map(p=>`<div class="row"><div><b>${esc(p.aluno)}</b><small>${br(p.pagoEm)} · ${esc(p.curso)} · ${esc(p.forma)}</small></div><span class="tag">${brl(p.valor)}</span></div>`).join(""):`<div class="empty">Nenhum recebimento neste mês.</div>`);
+    body=`<div class="box"><label for="fmes">Recebimentos feitos em</label><input id="fmes" type="month" value="${fmes}"><span><b>Total: ${brl(tot)}</b>${Object.keys(pf).map(k=>` · ${esc(k)} ${brl(pf[k])}`).join("")}</span><button class="btn sec" data-a="csv">Exportar planilha (CSV)</button></div><h2>Recebimentos</h2>`+(l.length?l.map(p=>`<div class="row"><div><b>${esc(p.aluno)}</b><small>${br(p.pagoEm)} · ${esc(p.curso)} · ${esc(p.forma)}</small></div><div class="acts"><span class="tag">${brl(p.valor)}</span><button class="lnk" data-a="unpay" data-id="${p.id}">Excluir</button></div></div>`).join(""):`<div class="empty">Nenhum recebimento neste mês.</div>`);
   }
   if(tab==="pag"){
     const base=mats.filter(m=>m.ativa!==false&&m.inicio.slice(0,7)<=mes),pg=base.filter(m=>pays[m.id+"_"+mes]);
@@ -273,7 +275,12 @@ app.addEventListener("click",async e=>{
     if(a==="sair"){view=null;await signOut(auth)}
     if(a==="tab"){tab=b.dataset.t;draw()}
     if(a==="set"&&(b.dataset.s!=="recusado"||confirm("Recusar este cadastro?"))){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
-    if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
+    if(a==="del"&&confirm("Remover este aluno? As matrículas e a presença nas turmas serão apagadas. Os recibos e o financeiro continuam guardados.")){
+      for(const m of mats.filter(x=>x.uid===id))await deleteDoc(doc(db,"enrollments",m.id));
+      for(const c of classes.filter(x=>(x.alunoIds||[]).includes(id))){await updateDoc(doc(db,"classes",c.id),{alunoIds:arrayRemove(id),["nomes."+id]:deleteField()});c.alunoIds=c.alunoIds.filter(x=>x!==id);if(c.nomes)delete c.nomes[id]}
+      await deleteDoc(doc(db,"students",id));
+      mats=mats.filter(x=>x.uid!==id);alunos=alunos.filter(x=>x.id!==id);draw();
+    }
     if(a==="endm"&&confirm("Encerrar esta matrícula? Os recibos já emitidos continuam guardados.")){await updateDoc(doc(db,"enrollments",id),{ativa:false});mats.find(x=>x.id===id).ativa=false;draw()}
     if(a==="delc"&&confirm("Excluir esta turma?")){await deleteDoc(doc(db,"classes",id));classes=classes.filter(x=>x.id!==id);draw()}
     if(a==="rmst"&&confirm("Tirar este aluno da turma?")){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u),["nomes."+b.dataset.u]:deleteField()});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);if(c.nomes)delete c.nomes[b.dataset.u];draw()}
