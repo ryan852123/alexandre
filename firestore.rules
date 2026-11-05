@@ -31,6 +31,11 @@ service cloud.firestore {
       allow read: if admin() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow write: if admin();
     }
+    match /notices/{id} {
+      allow read: if admin() || (request.auth != null
+        && get(/databases/$(db)/documents/students/$(request.auth.uid)).data.status == 'aprovado');
+      allow write: if admin();
+    }
     match /classes/{id} {
       allow read: if admin() || (request.auth != null
         && (request.auth.uid in resource.data.alunoIds || resource.data.profEmail == request.auth.token.email));

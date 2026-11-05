@@ -40,6 +40,13 @@ input[type=checkbox]{width:auto;margin-right:8px}
 .sm{display:block;color:var(--mut);font-size:.9rem}
 details{margin-top:8px}summary{cursor:pointer;color:var(--acc);font-weight:600}
 a{color:var(--acc)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;margin:10px 0}
+.cal button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:6px 0;font:inherit;cursor:pointer;min-height:46px}
+.cal button.sel{background:var(--acc);color:var(--bg);border-color:var(--acc)}
+.cal button.hoje{box-shadow:inset 0 0 0 2px var(--gold)}
+.i-a,.i-e,.i-s{display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 1px}
+.i-a{background:var(--acc)}.i-e{background:var(--gold)}.i-s{background:var(--bad)}
+.cal button.sel .i-a,.cal button.sel .i-e,.cal button.sel .i-s{background:var(--bg)}
 .tabs{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
 .paper{background:#fff;color:#111;border:2px solid #1d4ed8;border-radius:12px;overflow:hidden;margin:12px 0}
 .paper .hd{background:#1d4ed8;color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
@@ -70,7 +77,7 @@ const $=s=>document.querySelector(s),app=$("#app");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const br=d=>d?d.split("-").reverse().join("/"):"";
 const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],teachers=[],att={},isTeacher=false,curClass=null,curDate="",cdia=nomeHoje(),fmes=hojeISO().slice(0,7),view=null,msg="";
+let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],teachers=[],att={},isTeacher=false,curClass=null,curDate="",cdia=nomeHoje(),fmes=hojeISO().slice(0,7),notices=[],stab="inicio",calMes=hojeISO().slice(0,7),calDia=hojeISO(),view=null,msg="";
 let mes=hojeISO().slice(0,7);
 
 onAuthStateChanged(auth,async u=>{
@@ -85,16 +92,17 @@ onAuthStateChanged(auth,async u=>{
 const all=async c=>(await getDocs(collection(db,c))).docs.map(d=>({id:d.id,...d.data()}));
 const mine=async(c,f,op,v)=>(await getDocs(query(collection(db,c),where(f,op,v)))).docs.map(d=>({id:d.id,...d.data()}));
 async function loadAdmin(){
-  alunos=await all("students");classes=await all("classes");mats=await all("enrollments");teachers=await all("teachers");
+  alunos=await all("students");classes=await all("classes");mats=await all("enrollments");teachers=await all("teachers");notices=await all("notices");
   att={};(await all("attendance")).forEach(a=>att[a.id]=a);
   pays={};(await all("payments")).forEach(p=>pays[p.id]=p);
 }
 async function loadMe(){
-  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];att={};
+  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];att={};notices=[];
   if(me&&me.status==="aprovado"){
     mats=await mine("enrollments","uid","==",user.uid);
     (await mine("payments","uid","==",user.uid)).forEach(p=>pays[p.id]=p);
     classes=await mine("classes","alunoIds","array-contains",user.uid);
+    notices=await all("notices");
     (await mine("attendance","alunoIds","array-contains",user.uid)).forEach(a=>att[a.id]=a);
   }
 }
@@ -133,10 +141,31 @@ function studentView(){
   if(me.status==="pendente")return `<h1>Cadastro enviado</h1><div class="box"><b>Aguardando aprovação do pastor.</b><p>Assim que ele aprovar, você poderá ver suas informações aqui. Volte mais tarde.</p></div>`;
   if(me.status==="recusado")return `<h1>Cadastro não aprovado</h1><div class="box"><p>Fale com o pastor para entender o motivo.</p></div>`;
   const act=mats.filter(m=>m.ativa!==false);
-  return `<h1>Olá, ${esc(me.nome.split(" ")[0])}</h1><div class="staff"></div>
-  <h2>Minhas matrículas</h2>${act.length?act.map(m=>`<div class="row"><div><b>${esc(m.curso)}</b><small>Desde ${br(m.inicio)}</small></div><span class="tag">${brl(m.valor)}/mês</span></div>`).join(""):`<div class="empty">Nenhuma matrícula ainda. O pastor vai registrar os cursos que você vai fazer.</div>`}
-  <h2>Minhas aulas</h2>${aulasAluno()}
-  <h2>Pagamentos</h2>${historico()}`;
+  const TB=[["inicio","Início"],["cal","Calendário"],["avisos","Avisos"],["pag","Pagamentos"]];
+  let body="";
+  if(stab==="inicio")body=`<h2>Minhas matrículas</h2>${act.length?act.map(m=>`<div class="row"><div><b>${esc(m.curso)}</b><small>Desde ${br(m.inicio)}</small></div><span class="tag">${brl(m.valor)}/mês</span></div>`).join(""):`<div class="empty">Nenhuma matrícula ainda. O pastor vai registrar os cursos que você vai fazer.</div>`}<h2>Minhas aulas</h2>${aulasAluno()}`;
+  if(stab==="cal")body=calendarioView();
+  if(stab==="avisos")body=avisosView();
+  if(stab==="pag")body=`<h2>Pagamentos</h2>${historico()}`;
+  return `<h1>Olá, ${esc(me.nome.split(" ")[0])}</h1><div class="staff"></div><div class="tabs" role="tablist">${TB.map(t=>`<button role="tab" data-a="stab" data-t="${t[0]}" aria-selected="${stab===t[0]}">${t[1]}</button>`).join("")}</div>${body}`;
+}
+const pad=n=>String(n).padStart(2,"0");
+const TIPO={aviso:"Aviso",evento:"Evento",semaula:"Sem aula"};
+function avisoItem(n,del){return `<div class="row"><div><b>${esc(n.titulo)}</b>${n.texto?`<small>${esc(n.texto)}</small>`:""}<small>${TIPO[n.tipo]||"Aviso"}${n.data?" · "+br(n.data):""}${n.postado?" · postado em "+br(n.postado):""}</small></div>${del?`<button class="lnk" data-a="deln" data-id="${n.id}">Remover</button>`:""}</div>`}
+function avisosView(){const l=[...notices].sort((x,y)=>(y.postado||"").localeCompare(x.postado||""));return l.length?l.map(n=>avisoItem(n)).join(""):`<div class="empty">Nenhum aviso por enquanto.</div>`}
+function calendarioView(){
+  const [a,m]=calMes.split("-").map(Number),dias=new Date(a,m,0).getDate(),off=(new Date(a,m-1,1).getDay()+6)%7,hoje=hojeISO();
+  const ev=iso=>notices.filter(n=>n.data===iso),sem=iso=>ev(iso).some(n=>n.tipo==="semaula");
+  let cells=DIAS.map(d=>`<b class="sm" style="text-align:center">${d.slice(0,3)}</b>`).join("");
+  for(let i=0;i<off;i++)cells+="<span></span>";
+  for(let d=1;d<=dias;d++){
+    const iso=a+"-"+pad(m)+"-"+pad(d),wd=DIAS[(off+d-1)%7],s=sem(iso),aula=!s&&classes.some(c=>c.dia===wd),e=ev(iso).some(n=>n.tipo!=="semaula");
+    cells+=`<button data-a="cal" data-d="${iso}" class="${iso===calDia?"sel":""} ${iso===hoje?"hoje":""}">${d}<br>${aula?'<i class="i-a"></i>':""}${e?'<i class="i-e"></i>':""}${s?'<i class="i-s"></i>':""}</button>`;
+  }
+  const wd=DIAS[(new Date(calDia+"T12:00:00").getDay()+6)%7],evs=ev(calDia),cancel=sem(calDia);
+  const aulas=classes.filter(c=>c.dia===wd).sort((x,y)=>x.hora.localeCompare(y.hora));
+  return `<div class="box"><div style="display:flex;justify-content:space-between;align-items:center"><button class="lnk" data-a="calmes" data-d="-1">← Anterior</button><b>${nomeMes(calMes)}</b><button class="lnk" data-a="calmes" data-d="1">Próximo →</button></div><div class="cal">${cells}</div><span class="sm"><i class="i-a"></i> aula · <i class="i-e"></i> evento · <i class="i-s"></i> sem aula</span></div>
+  <h2>${br(calDia)} · ${wd}</h2>${evs.map(n=>avisoItem(n)).join("")}${aulas.length?aulas.map(c=>`<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small></div><span class="tag ${cancel?"no":""}">${cancel?"Sem aula":c.hora}</span></div>`).join(""):(evs.length?"":`<div class="empty">Nada marcado neste dia.</div>`)}`;
 }
 function mesesDe(ini){const r=[],h=hojeISO().slice(0,7);let[a,m]=ini.slice(0,7).split("-").map(Number);
   while((a+"-"+String(m).padStart(2,"0"))<=h&&r.length<60){r.push(a+"-"+String(m).padStart(2,"0"));m++;if(m>12){m=1;a++}}return r}
@@ -200,7 +229,7 @@ const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
 /* ---------- PASTOR ---------- */
 function adminView(){
   const meuEmail=user.email.toLowerCase(),minhas=classes.some(c=>c.profEmail===meuEmail);
-  const T=[["pend","Pendentes"],["crono","Cronograma"],...(minhas?[["minhas","Minhas turmas"]]:[]),["alunos","Alunos"],["aulas","Aulas"],["pag","Pagamentos"],["fin","Financeiro"],["aniv","Aniversários"]];
+  const T=[["pend","Pendentes"],["crono","Cronograma"],["avisos","Avisos"],...(minhas?[["minhas","Minhas turmas"]]:[]),["alunos","Alunos"],["aulas","Aulas"],["pag","Pagamentos"],["fin","Financeiro"],["aniv","Aniversários"]];
   const pend=alunos.filter(a=>a.status==="pendente"),apr=alunos.filter(a=>a.status==="aprovado").sort((a,b)=>a.nome.localeCompare(b.nome));
   const tels=alunos.map(a=>(a.tel||"").replace(/\D/g,""));
   const dup=a=>tels.filter(t=>t===(a.tel||"").replace(/\D/g,"")).length>1?` <b class="no">· WhatsApp repetido</b>`:"";
@@ -213,6 +242,7 @@ function adminView(){
     const h=new Date(),m=h.getMonth()+1,l=apr.filter(a=>a.nascimento&&+a.nascimento.split("-")[1]===m).sort((a,b)=>a.nascimento.slice(8)-b.nascimento.slice(8));
     body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=h.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===h.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes (a data de nascimento é opcional no cadastro).</div>`);
   }
+  if(tab==="avisos")body=`<form id="aviso"><div><label for="at">Tipo</label><select id="at"><option value="aviso">Aviso</option><option value="evento">Evento (aparece no calendário)</option><option value="semaula">Sem aula (feriado, recesso)</option></select></div><div><label for="ati">Título</label><input id="ati" required></div><div><label for="atx">Texto (opcional)</label><textarea id="atx" rows="2"></textarea></div><div><label for="ad">Data (obrigatória para evento e sem aula)</label><input id="ad" type="date"></div><button class="btn" type="submit">Publicar</button></form><h2>Publicados</h2>`+(notices.length?[...notices].sort((x,y)=>(y.postado||"").localeCompare(x.postado||"")).map(n=>avisoItem(n,true)).join(""):`<div class="empty">Nenhum aviso publicado.</div>`);
   if(tab==="aulas")body=aulasAdmin(apr);
   if(tab==="minhas")body=teacherView(true);
   if(tab==="crono"){
@@ -227,7 +257,9 @@ function adminView(){
   if(tab==="pag"){
     const base=mats.filter(m=>m.ativa!==false&&m.inicio.slice(0,7)<=mes),pg=base.filter(m=>pays[m.id+"_"+mes]);
     const tot=pg.reduce((t,m)=>t+Number(pays[m.id+"_"+mes].valor||0),0);
-    body=`<div class="box"><label for="mes">Mensalidade referente a</label><input id="mes" type="month" value="${mes}"><span>${pg.length} de ${base.length} pagaram · ${base.filter(m=>!pays[m.id+"_"+mes]&&atrasado(m,mes)).length} atrasado(s) · recebido: ${brl(tot)}</span></div><h2>${nomeMes(mes)}</h2>`+(base.length?base.map(m=>{const k=m.id+"_"+mes,p=pays[k];
+    const atr=mats.filter(m=>m.ativa!==false).flatMap(m=>mesesDe(m.inicio).filter(mm=>mm!==mes&&!pays[m.id+"_"+mm]&&atrasado(m,mm)).map(mm=>({m,mm}))).sort((x,y)=>x.mm.localeCompare(y.mm));
+    const atrHtml=atr.length?`<details style="margin-bottom:12px"><summary>Em atraso em outros meses (${atr.length})</summary>${atr.map(({m,mm})=>`<div class="row"><div><b>${esc(m.aluno)}</b><small>${esc(m.curso)} · ${nomeMes(mm)} · ${brl(m.valor)}</small></div><button class="btn sec" data-a="irmes" data-mm="${mm}">Abrir mês</button></div>`).join("")}</details>`:"";
+    body=atrHtml+`<div class="box"><label for="mes">Mensalidade referente a</label><input id="mes" type="month" value="${mes}"><span>${pg.length} de ${base.length} pagaram · ${base.filter(m=>!pays[m.id+"_"+mes]&&atrasado(m,mes)).length} atrasado(s) · recebido: ${brl(tot)}</span></div><h2>${nomeMes(mes)}</h2>`+(base.length?base.map(m=>{const k=m.id+"_"+mes,p=pays[k];
       return `<div class="row" style="flex-wrap:wrap"><div><b>${esc(m.aluno)}</b><small>${esc(m.curso)} · ${brl(m.valor)}</small>${p?`<small class="ok">Pago em ${br(p.pagoEm)} · ${esc(p.forma)} · recibo ${esc(p.recibo)}</small>`:`<small class="${atrasado(m,mes)?"no":""}">${atrasado(m,mes)?"Atrasado":"Em aberto"} · vence dia ${m.vencimento||10}</small>`}</div><div class="acts" style="flex-wrap:wrap;justify-content:flex-end">${p?`<button class="btn sec" data-a="rec" data-id="${k}">Recibo</button><button class="lnk" data-a="unpay" data-id="${k}">Desfazer</button>`:`<select style="width:auto" data-forma="${m.id}" aria-label="Forma de pagamento"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Boleto</option></select><input type="date" style="width:auto" data-pdata="${m.id}" value="${hojeISO()}" aria-label="Data do pagamento"><button class="btn sec" data-a="pay" data-id="${m.id}">Registrar</button>`}</div></div>`}).join(""):`<div class="empty">Nenhuma matrícula ativa neste mês. Matricule alunos na aba Alunos.</div>`);
   }
   return `<h1>Painel do pastor</h1><div class="tabs" role="tablist">${T.map(t=>`<button role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${tab===t[0]}">${t[1]}${t[0]==="pend"&&pend.length?` (${pend.length})`:""}</button>`).join("")}</div>${body}`;
@@ -259,6 +291,11 @@ app.addEventListener("click",async e=>{
     if(a==="cdia"){cdia=b.dataset.d;draw()}
     if(a==="csv")baixarCsv();
     if(a==="delmat"&&confirm("Remover este material?")){const c=classes.find(x=>x.id===id),novo=(c.materiais||[]).filter(x=>x.id!==b.dataset.m);await updateDoc(doc(db,"classes",id),{materiais:novo});c.materiais=novo;draw()}
+    if(a==="stab"){stab=b.dataset.t;draw()}
+    if(a==="cal"){calDia=b.dataset.d;draw()}
+    if(a==="calmes"){let[y,mo]=calMes.split("-").map(Number);mo+=Number(b.dataset.d);if(mo<1){mo=12;y--}if(mo>12){mo=1;y++}calMes=y+"-"+pad(mo);draw()}
+    if(a==="irmes"){mes=b.dataset.mm;draw();scrollTo(0,0)}
+    if(a==="deln"&&confirm("Remover este aviso?")){await deleteDoc(doc(db,"notices",id));notices=notices.filter(x=>x.id!==id);draw()}
     if(a==="print")window.print();
   }catch(er){fail(er)}
 });
@@ -270,9 +307,15 @@ app.addEventListener("change",async e=>{
   if(t.dataset.a==="addst"&&t.value){try{const al=alunos.find(x=>x.id===t.value);await updateDoc(doc(db,"classes",t.dataset.id),{alunoIds:arrayUnion(t.value),["nomes."+t.value]:al.nome});const c=classes.find(x=>x.id===t.dataset.id);c.alunoIds=[...(c.alunoIds||[]),t.value];c.nomes={...(c.nomes||{}),[t.value]:al.nome};draw()}catch(er){fail(er)}}
 });
 app.addEventListener("submit",async e=>{
-  const f=e.target;if(!["turma","cad","prof","chamada","material"].includes(f.id)&&f.dataset.f!=="mat")return;e.preventDefault();
+  const f=e.target;if(!["turma","cad","prof","chamada","material","aviso"].includes(f.id)&&f.dataset.f!=="mat")return;e.preventDefault();
   try{
     if(f.id==="prof"){const em=$("#pe").value.trim().toLowerCase(),nm=$("#pn").value.trim();await setDoc(doc(db,"teachers",em),{nome:nm});teachers.push({id:em,nome:nm});draw()}
+    if(f.id==="aviso"){
+      const tipo=$("#at").value,data=$("#ad").value;
+      if(tipo!=="aviso"&&!data){alert("Escolha a data do evento ou do dia sem aula.");return}
+      const d={tipo,titulo:$("#ati").value.trim(),texto:$("#atx").value.trim(),data,postado:hojeISO(),por:user.displayName||user.email};
+      const r=await addDoc(collection(db,"notices"),d);notices.push({id:r.id,...d});draw();
+    }
     if(f.id==="material"){
       const c=classes.find(x=>x.id===curClass),raw=$("#ml").value.trim(),lk=safeLink(raw);
       if(raw&&!lk){alert("Link inválido. Use um endereço que comece com https://");return}
