@@ -39,7 +39,16 @@ input[type=checkbox]{width:auto;margin-right:8px}
 .err{color:var(--bad);font-weight:600}
 .sm{display:block;color:var(--mut);font-size:.9rem}
 details{margin-top:8px}summary{cursor:pointer;color:var(--acc);font-weight:600}
-@media print{:root{--bg:#fff;--card:#fff;--ink:#000;--mut:#333;--line:#000}.noprint,.top{display:none!important}}
+a{color:var(--acc)}
+.tabs{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.paper{background:#fff;color:#111;border:2px solid #1d4ed8;border-radius:12px;overflow:hidden;margin:12px 0}
+.paper .hd{background:#1d4ed8;color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.paper .hd b{font-size:1.2rem}
+.paper .bd{padding:22px;display:grid;gap:14px;line-height:1.7}
+.paper .val{font-size:1.8rem;font-weight:800;color:#1d4ed8}
+.paper .ln{border-top:1px solid #111;margin-top:34px;padding-top:6px;text-align:center;font-size:.9rem}
+.paper .ft{font-size:.78rem;color:#555;border-top:1px dashed #999;padding-top:10px}
+@media print{:root{--bg:#fff;--card:#fff;--ink:#000;--mut:#333;--line:#000}.noprint,.top{display:none!important}.paper{border-color:#000}.paper .hd{background:#1d4ed8!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style>
 </head>
 <body>
@@ -52,6 +61,7 @@ import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,qu
 // ====== TROQUE AQUI ======
 const firebaseConfig={apiKey:"AIzaSyAuzIOxZuc54kjU-3fw8Vt_wM09D9FuFI4",authDomain:"escola-alexandre.firebaseapp.com",projectId:"escola-alexandre",appId:"1:186501325334:web:5b76153cdd1456beda0b37"};
 const ESCOLA="Escola de Música";
+const DOC_ESCOLA=""; // opcional: CNPJ do recebedor (aparece no recibo)
 const INSTRUMENTOS=["Violão","Teclado","Bateria","Canto","Baixo","Violino"];
 // =========================
 
@@ -132,12 +142,29 @@ function mesesDe(ini){const r=[],h=hojeISO().slice(0,7);let[a,m]=ini.slice(0,7).
   while((a+"-"+String(m).padStart(2,"0"))<=h&&r.length<60){r.push(a+"-"+String(m).padStart(2,"0"));m++;if(m>12){m=1;a++}}return r}
 function historico(){
   const l=mats.flatMap(m=>mesesDe(m.inicio).map(mm=>({m,mm,p:pays[m.id+"_"+mm]}))).filter(x=>x.p||x.m.ativa!==false).sort((x,y)=>y.mm.localeCompare(x.mm));
-  return l.length?l.map(({m,mm,p})=>`<div class="row"><div><b>${nomeMes(mm)}</b><small>${esc(m.curso)} · ${brl(p?p.valor:m.valor)}${p?" · pago em "+br(p.pagoEm):""}</small></div>${p?`<div class="acts"><span class="tag ok">Pago</span><button class="btn sec" data-a="rec" data-id="${p.id}">Recibo</button></div>`:`<span class="tag no">Pendente</span>`}</div>`).join(""):`<div class="empty">Sem cobranças ainda.</div>`;
+  return l.length?l.map(({m,mm,p})=>`<div class="row"><div><b>${nomeMes(mm)}</b><small>${esc(m.curso)} · ${brl(p?p.valor:m.valor)}${p?" · pago em "+br(p.pagoEm):" · vence dia "+(m.vencimento||10)}</small></div>${p?`<div class="acts"><span class="tag ok">Pago</span><button class="btn sec" data-a="rec" data-id="${p.id}">Recibo</button></div>`:`${atrasado(m,mm)?`<span class="tag no">Atrasado</span>`:`<span class="tag">Em aberto</span>`}`}</div>`).join(""):`<div class="empty">Sem cobranças ainda.</div>`;
 }
-function reciboView(p){return `<div class="rec"><h1>Recibo nº ${esc(p.recibo)}</h1><p>${ESCOLA}</p>
-  <div class="box"><span><b>Aluno:</b> ${esc(p.aluno)}</span><span><b>Curso:</b> ${esc(p.curso)}</span><span><b>Referência:</b> ${nomeMes(p.mes)}</span><span><b>Valor:</b> ${brl(p.valor)}</span><span><b>Pago em:</b> ${br(p.pagoEm)}</span><span><b>Forma:</b> ${esc(p.forma)}</span></div>
-  <p>Recebemos o valor acima, referente à mensalidade indicada.</p>
+function extenso(v){
+  v=Math.round(Number(v)*100);const r=Math.floor(v/100),c=v%100;
+  const U=["","um","dois","três","quatro","cinco","seis","sete","oito","nove","dez","onze","doze","treze","quatorze","quinze","dezesseis","dezessete","dezoito","dezenove"],D=["","","vinte","trinta","quarenta","cinquenta","sessenta","setenta","oitenta","noventa"],C=["","cento","duzentos","trezentos","quatrocentos","quinhentos","seiscentos","setecentos","oitocentos","novecentos"];
+  const g=n=>{if(n===100)return"cem";const h=Math.floor(n/100),d=n%100,a=[];if(h)a.push(C[h]);if(d)a.push(d<20?U[d]:D[Math.floor(d/10)]+(d%10?" e "+U[d%10]:""));return a.join(" e ")};
+  const m=Math.floor(r/1000),u=r%1000,pt=[];
+  if(m)pt.push(m===1?"mil":g(m)+" mil");
+  if(u)pt.push(g(u));
+  const t=pt.length===2&&(u<100||u%100===0)?pt.join(" e "):pt.join(" ");
+  if(!r&&!c)return"zero real";
+  return (r?t+(r===1?" real":" reais"):"")+(r&&c?" e ":"")+(c?g(c)+(c===1?" centavo":" centavos"):"");
+}
+function reciboView(p){
+  const doc=DOC_ESCOLA?`<div>${esc(DOC_ESCOLA)}</div>`:"";
+  return `<div class="rec"><div class="paper"><div class="hd"><div><b>${esc(ESCOLA)}</b>${doc}</div><div style="text-align:right"><div>RECIBO DE PAGAMENTO</div><b>Nº ${esc(p.recibo)}</b></div></div>
+  <div class="bd"><div class="val">${brl(p.valor)}</div>
+  <div>Recebemos de <b>${esc(p.aluno)}</b> a importância de <b>${brl(p.valor)}</b> (${extenso(p.valor)}), referente à mensalidade de <b>${nomeMes(p.mes)}</b> do curso de <b>${esc(p.curso)}</b>, paga em <b>${br(p.pagoEm)}</b> por <b>${esc(p.forma)}</b>.</div>
+  <div>Para clareza, firmamos o presente recibo.</div>
+  <div class="ln">${esc(p.por||ESCOLA)}<br>Recebedor</div>
+  <div class="ft">Documento emitido eletronicamente. Recibo nº ${esc(p.recibo)}. A autenticidade pode ser confirmada com a escola informando este número.</div></div></div>
   <button class="btn noprint" data-a="print">Imprimir / salvar PDF</button> <button class="lnk noprint" data-a="back">Voltar</button></div>`}
+function atrasado(m,mm){return hojeISO()>mm+"-"+String(m.vencimento||10).padStart(2,"0")}
 const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"];
 const ordDia=c=>DIAS.indexOf(c.dia)*10000+(+c.hora.replace(":",""));
 function ultimaChamada(id){return Object.values(att).filter(x=>x.classId===id).sort((x,y)=>y.date.localeCompare(x.date))[0]}
@@ -145,17 +172,18 @@ function aulasAluno(){return classes.length?[...classes].sort((a,b)=>ordDia(a)-o
   return `<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small>${u?`<small>Última aula ${br(u.date)}: ${u.presentes.includes(user.uid)?"presente":"faltou"}${u.conteudo?" · "+esc(u.conteudo):""}</small>`:""}</div><span class="tag">${c.dia}, ${c.hora}</span></div>${(c.materiais||[]).length?`<div style="margin:-4px 0 12px 14px"><span class="sm">Material</span>${c.materiais.slice().reverse().map(m=>matItem(m,c,false)).join("")}</div>`:""}`}).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
 function aulasAdmin(apr){
   const nome=id=>esc((alunos.find(a=>a.id===id)||{}).nome||"(removido)");
-  const profs=`<h2>Professores</h2>${teachers.map(t=>`<div class="row"><div><b>${esc(t.nome)}</b><small>${esc(t.id)}</small></div><button class="lnk" data-a="delp" data-id="${t.id}">Remover</button></div>`).join("")||`<div class="empty">Nenhum professor cadastrado.</div>`}<details><summary>Cadastrar professor</summary><form id="prof"><div><label for="pn">Nome</label><input id="pn" required></div><div><label for="pe">E-mail Google do professor</label><input id="pe" type="email" required></div><button class="btn" type="submit">Cadastrar</button></form></details>`;
-  const f=`<form id="turma"><div><label for="ti">Instrumento</label><select id="ti">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div><div><label for="tp">Professor</label><select id="tp">${teachers.length?teachers.map(t=>`<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join(""):`<option value="">Cadastre um professor antes</option>`}</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="td">Dia</label><select id="td">${DIAS.map(d=>`<option>${d}</option>`).join("")}</select></div><div><label for="th">Horário</label><input id="th" type="time" required></div></div><button class="btn" type="submit">Criar turma</button></form>`;
+  const profs=`<h2>Professores</h2>${teachers.map(t=>`<div class="row"><div><b>${esc(t.nome)}</b><small>${esc(t.id)}</small></div><button class="lnk" data-a="delp" data-id="${t.id}">Remover</button></div>`).join("")||`<div class="empty">Nenhum professor cadastrado.</div>`}<details><summary>Cadastrar outro professor (só se não for você)</summary><form id="prof"><div><label for="pn">Nome</label><input id="pn" required></div><div><label for="pe">E-mail Google do professor</label><input id="pe" type="email" required></div><button class="btn" type="submit">Cadastrar</button></form></details>`;
+  const f=`<form id="turma"><div><label for="ti">Instrumento</label><select id="ti">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div><div><label for="tp">Professor</label><select id="tp"><option value="__eu">Eu mesmo (${esc(user.displayName||user.email)})</option>${teachers.map(t=>`<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join("")}</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="td">Dia</label><select id="td">${DIAS.map(d=>`<option>${d}</option>`).join("")}</select></div><div><label for="th">Horário</label><input id="th" type="time" required></div></div><button class="btn" type="submit">Criar turma</button></form>`;
   const l=[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>{
     const ids=c.alunoIds||[],livres=apr.filter(a=>!ids.includes(a.id)),u=ultimaChamada(c.id);
     return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(c.instrumento)} · ${c.dia}, ${c.hora}</b><button class="lnk" data-a="delc" data-id="${c.id}">Excluir</button></div><span class="sm">Prof. ${esc(c.professor)}${u?` · última chamada ${br(u.date)}: ${u.presentes.length} de ${(u.alunoIds||[]).length} presentes`:""}</span>${ids.map(i=>`<div style="display:flex;justify-content:space-between">${nome(i)}<button class="lnk" data-a="rmst" data-id="${c.id}" data-u="${i}">tirar</button></div>`).join("")||`<span class="sm">Sem alunos nesta turma.</span>`}${livres.length?`<select data-a="addst" data-id="${c.id}"><option value="">Adicionar aluno…</option>${livres.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("")}</select>`:""}</div>`}).join("");
   return profs+`<h2>Nova turma</h2>${f}<h2>Turmas</h2>${l||`<div class="empty">Nenhuma turma criada ainda.</div>`}`;
 }
 /* ---------- PROFESSOR ---------- */
-function teacherView(){
+function teacherView(emb){
   if(curClass)return chamadaView();
-  return `<h1>Minhas turmas</h1><p>Toque em uma turma para fazer a chamada.</p>`+(classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>`<button class="row" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-a="chamada" data-id="${c.id}"><div><b>${esc(c.instrumento)}</b><small>${(c.alunoIds||[]).length} aluno(s)</small></div><span class="tag">${c.dia}, ${c.hora}</span></button>`).join(""):`<div class="empty">Você ainda não tem turmas. O pastor vai atribuir.</div>`);
+  const em=user.email.toLowerCase(),mine=classes.filter(c=>c.profEmail===em);
+  return (emb?"":`<h1>Minhas turmas</h1>`)+`<p>Toque em uma turma para fazer a chamada e enviar material.</p>`+(mine.length?[...mine].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>`<button class="row" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-a="chamada" data-id="${c.id}"><div><b>${esc(c.instrumento)}</b><small>${(c.alunoIds||[]).length} aluno(s)</small></div><span class="tag">${c.dia}, ${c.hora}</span></button>`).join(""):`<div class="empty">Nenhuma turma atribuída a você.</div>`);
 }
 function chamadaView(){
   const c=classes.find(x=>x.id===curClass),at=att[c.id+"_"+curDate],ids=c.alunoIds||[];
@@ -171,7 +199,8 @@ function chamadaView(){
 const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
 /* ---------- PASTOR ---------- */
 function adminView(){
-  const T=[["pend","Pendentes"],["crono","Cronograma"],["alunos","Alunos"],["aulas","Aulas"],["pag","Pagamentos"],["fin","Financeiro"],["aniv","Aniversários"]];
+  const meuEmail=user.email.toLowerCase(),minhas=classes.some(c=>c.profEmail===meuEmail);
+  const T=[["pend","Pendentes"],["crono","Cronograma"],...(minhas?[["minhas","Minhas turmas"]]:[]),["alunos","Alunos"],["aulas","Aulas"],["pag","Pagamentos"],["fin","Financeiro"],["aniv","Aniversários"]];
   const pend=alunos.filter(a=>a.status==="pendente"),apr=alunos.filter(a=>a.status==="aprovado").sort((a,b)=>a.nome.localeCompare(b.nome));
   const tels=alunos.map(a=>(a.tel||"").replace(/\D/g,""));
   const dup=a=>tels.filter(t=>t===(a.tel||"").replace(/\D/g,"")).length>1?` <b class="no">· WhatsApp repetido</b>`:"";
@@ -179,12 +208,13 @@ function adminView(){
   let body="";
   if(tab==="pend")body=pend.length?pend.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>Quer: ${esc((a.interesses||[]).join(", ")||"—")}</small><small>${wa(a)}${dup(a)} · ${esc(a.email)}</small></div><div class="acts"><button class="btn sec" data-a="set" data-id="${a.id}" data-s="aprovado">Aprovar</button><button class="btn bad" data-a="set" data-id="${a.id}" data-s="recusado">Recusar</button></div></div>`).join(""):`<div class="empty">Nenhum cadastro esperando aprovação.</div>`;
   if(tab==="alunos")body=apr.length?apr.map(a=>{const ms=mats.filter(m=>m.uid===a.id&&m.ativa!==false);
-    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div><b>${esc(a.nome)}</b><span class="sm">${wa(a)}${a.interesses&&a.interesses.length?" · quer: "+esc(a.interesses.join(", ")):""}</span></div><button class="lnk" data-a="del" data-id="${a.id}">Remover</button></div>${ms.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(m.curso)} · ${brl(m.valor)}/mês · desde ${br(m.inicio)}</span><button class="lnk" data-a="endm" data-id="${m.id}">Encerrar</button></div>`).join("")||`<span class="sm">Sem matrículas.</span>`}<details><summary>Matricular em um curso</summary><form data-f="mat" data-uid="${a.id}"><select name="curso">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select><input name="valor" type="number" step="0.01" min="0" required placeholder="Valor mensal (R$)"><div><label>Data da matrícula</label><input name="inicio" type="date" required value="${hojeISO()}"></div><button class="btn" type="submit">Matricular</button></form></details></div>`}).join(""):`<div class="empty">Nenhum aluno aprovado ainda.</div>`;
+    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div><b>${esc(a.nome)}</b><span class="sm">${wa(a)}${a.interesses&&a.interesses.length?" · quer: "+esc(a.interesses.join(", ")):""}</span></div><button class="lnk" data-a="del" data-id="${a.id}">Remover</button></div>${ms.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(m.curso)} · ${brl(m.valor)}/mês · desde ${br(m.inicio)} · vence dia ${m.vencimento||10}</span><button class="lnk" data-a="endm" data-id="${m.id}">Encerrar</button></div>`).join("")||`<span class="sm">Sem matrículas.</span>`}<details><summary>Matricular em um curso</summary><form data-f="mat" data-uid="${a.id}"><select name="curso">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select><input name="valor" type="number" step="0.01" min="0" required placeholder="Valor mensal (R$)"><div><label>Dia de vencimento</label><input name="venc" type="number" min="1" max="28" value="10" required></div><div><label>Data da matrícula</label><input name="inicio" type="date" required value="${hojeISO()}"></div><button class="btn" type="submit">Matricular</button></form></details></div>`}).join(""):`<div class="empty">Nenhum aluno aprovado ainda.</div>`;
   if(tab==="aniv"){
     const h=new Date(),m=h.getMonth()+1,l=apr.filter(a=>a.nascimento&&+a.nascimento.split("-")[1]===m).sort((a,b)=>a.nascimento.slice(8)-b.nascimento.slice(8));
     body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=h.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===h.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes (a data de nascimento é opcional no cadastro).</div>`);
   }
   if(tab==="aulas")body=aulasAdmin(apr);
+  if(tab==="minhas")body=teacherView(true);
   if(tab==="crono"){
     const l=classes.filter(c=>c.dia===cdia).sort((a,b)=>a.hora.localeCompare(b.hora)),hoje=cdia===nomeHoje();
     body=`<div class="tabs">${DIAS.map(d=>`<button data-a="cdia" data-d="${d}" aria-selected="${cdia===d}">${d}</button>`).join("")}</div>`+(l.length?l.map(c=>{const ids=c.alunoIds||[],ch=hoje&&att[c.id+"_"+hojeISO()];
@@ -192,13 +222,13 @@ function adminView(){
   }
   if(tab==="fin"){
     const l=finList(),tot=l.reduce((t,p)=>t+Number(p.valor||0),0),pf={};l.forEach(p=>pf[p.forma]=(pf[p.forma]||0)+Number(p.valor||0));
-    body=`<div class="box"><label for="fmes">Mês dos recebimentos</label><input id="fmes" type="month" value="${fmes}"><span><b>Total: ${brl(tot)}</b>${Object.keys(pf).map(k=>` · ${esc(k)} ${brl(pf[k])}`).join("")}</span><button class="btn sec" data-a="csv">Exportar planilha (CSV)</button></div><h2>Recebimentos</h2>`+(l.length?l.map(p=>`<div class="row"><div><b>${esc(p.aluno)}</b><small>${br(p.pagoEm)} · ${esc(p.curso)} · ${esc(p.forma)}</small></div><span class="tag">${brl(p.valor)}</span></div>`).join(""):`<div class="empty">Nenhum recebimento neste mês.</div>`);
+    body=`<div class="box"><label for="fmes">Recebimentos feitos em</label><input id="fmes" type="month" value="${fmes}"><span><b>Total: ${brl(tot)}</b>${Object.keys(pf).map(k=>` · ${esc(k)} ${brl(pf[k])}`).join("")}</span><button class="btn sec" data-a="csv">Exportar planilha (CSV)</button></div><h2>Recebimentos</h2>`+(l.length?l.map(p=>`<div class="row"><div><b>${esc(p.aluno)}</b><small>${br(p.pagoEm)} · ${esc(p.curso)} · ${esc(p.forma)}</small></div><span class="tag">${brl(p.valor)}</span></div>`).join(""):`<div class="empty">Nenhum recebimento neste mês.</div>`);
   }
   if(tab==="pag"){
     const base=mats.filter(m=>m.ativa!==false&&m.inicio.slice(0,7)<=mes),pg=base.filter(m=>pays[m.id+"_"+mes]);
     const tot=pg.reduce((t,m)=>t+Number(pays[m.id+"_"+mes].valor||0),0);
-    body=`<div class="box"><label for="mes">Mês</label><input id="mes" type="month" value="${mes}"><span>${pg.length} de ${base.length} pagaram · recebido: ${brl(tot)}</span></div><h2>${nomeMes(mes)}</h2>`+(base.length?base.map(m=>{const k=m.id+"_"+mes,p=pays[k];
-      return `<div class="row"><div><b>${esc(m.aluno)}</b><small>${esc(m.curso)} · ${brl(m.valor)}</small>${p?`<small class="ok">Pago em ${br(p.pagoEm)} · ${esc(p.forma)} · recibo ${esc(p.recibo)}</small>`:`<small class="no">Pendente</small>`}</div><div class="acts">${p?`<button class="btn sec" data-a="rec" data-id="${k}">Recibo</button><button class="lnk" data-a="unpay" data-id="${k}">Desfazer</button>`:`<select style="width:auto" data-forma="${m.id}" aria-label="Forma de pagamento"><option>Pix</option><option>Dinheiro</option><option>Cartão</option></select><button class="btn sec" data-a="pay" data-id="${m.id}">Registrar</button>`}</div></div>`}).join(""):`<div class="empty">Nenhuma matrícula ativa neste mês. Matricule alunos na aba Alunos.</div>`);
+    body=`<div class="box"><label for="mes">Mensalidade referente a</label><input id="mes" type="month" value="${mes}"><span>${pg.length} de ${base.length} pagaram · ${base.filter(m=>!pays[m.id+"_"+mes]&&atrasado(m,mes)).length} atrasado(s) · recebido: ${brl(tot)}</span></div><h2>${nomeMes(mes)}</h2>`+(base.length?base.map(m=>{const k=m.id+"_"+mes,p=pays[k];
+      return `<div class="row" style="flex-wrap:wrap"><div><b>${esc(m.aluno)}</b><small>${esc(m.curso)} · ${brl(m.valor)}</small>${p?`<small class="ok">Pago em ${br(p.pagoEm)} · ${esc(p.forma)} · recibo ${esc(p.recibo)}</small>`:`<small class="${atrasado(m,mes)?"no":""}">${atrasado(m,mes)?"Atrasado":"Em aberto"} · vence dia ${m.vencimento||10}</small>`}</div><div class="acts" style="flex-wrap:wrap;justify-content:flex-end">${p?`<button class="btn sec" data-a="rec" data-id="${k}">Recibo</button><button class="lnk" data-a="unpay" data-id="${k}">Desfazer</button>`:`<select style="width:auto" data-forma="${m.id}" aria-label="Forma de pagamento"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Boleto</option></select><input type="date" style="width:auto" data-pdata="${m.id}" value="${hojeISO()}" aria-label="Data do pagamento"><button class="btn sec" data-a="pay" data-id="${m.id}">Registrar</button>`}</div></div>`}).join(""):`<div class="empty">Nenhuma matrícula ativa neste mês. Matricule alunos na aba Alunos.</div>`);
   }
   return `<h1>Painel do pastor</h1><div class="tabs" role="tablist">${T.map(t=>`<button role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${tab===t[0]}">${t[1]}${t[0]==="pend"&&pend.length?` (${pend.length})`:""}</button>`).join("")}</div>${body}`;
 }
@@ -210,14 +240,14 @@ app.addEventListener("click",async e=>{
     if(a==="login")await signInWithPopup(auth,new GoogleAuthProvider());
     if(a==="sair"){view=null;await signOut(auth)}
     if(a==="tab"){tab=b.dataset.t;draw()}
-    if(a==="set"){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
+    if(a==="set"&&(b.dataset.s!=="recusado"||confirm("Recusar este cadastro?"))){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
     if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
     if(a==="endm"&&confirm("Encerrar esta matrícula? Os recibos já emitidos continuam guardados.")){await updateDoc(doc(db,"enrollments",id),{ativa:false});mats.find(x=>x.id===id).ativa=false;draw()}
     if(a==="delc"&&confirm("Excluir esta turma?")){await deleteDoc(doc(db,"classes",id));classes=classes.filter(x=>x.id!==id);draw()}
-    if(a==="rmst"){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u),["nomes."+b.dataset.u]:deleteField()});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);if(c.nomes)delete c.nomes[b.dataset.u];draw()}
+    if(a==="rmst"&&confirm("Tirar este aluno da turma?")){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u),["nomes."+b.dataset.u]:deleteField()});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);if(c.nomes)delete c.nomes[b.dataset.u];draw()}
     if(a==="pay"){
       const m=mats.find(x=>x.id===id),k=id+"_"+mes,forma=app.querySelector('[data-forma="'+id+'"]').value;
-      const p={uid:m.uid,matId:id,aluno:m.aluno,curso:m.curso,mes,valor:m.valor,forma,pagoEm:hojeISO(),recibo:"R"+Date.now().toString(36).toUpperCase().slice(-7)};
+      const p={uid:m.uid,matId:id,aluno:m.aluno,curso:m.curso,mes,valor:m.valor,forma,pagoEm:app.querySelector('[data-pdata="'+id+'"]').value||hojeISO(),por:user.displayName||user.email,recibo:"R"+Date.now().toString(36).toUpperCase().slice(-7)};
       await setDoc(doc(db,"payments",k),p);pays[k]={id:k,...p};draw();
     }
     if(a==="unpay"&&confirm("Desfazer este pagamento? O recibo deixa de existir.")){await deleteDoc(doc(db,"payments",id));delete pays[id];draw()}
@@ -254,8 +284,8 @@ app.addEventListener("submit",async e=>{
       const d={classId:c.id,profEmail:c.profEmail,date:curDate,alunoIds:c.alunoIds||[],presentes:pres,conteudo:$("#ct").value.trim(),salvoEm:serverTimestamp()};
       await setDoc(doc(db,"attendance",k),d);att[k]={id:k,...d};alert("Chamada salva!");draw();
     }
-    if(f.id==="turma"){const tp=$("#tp").value;if(!tp){alert("Cadastre um professor antes de criar a turma.");return}const pr=teachers.find(t=>t.id===tp);const d={instrumento:$("#ti").value,professor:pr.nome,profEmail:pr.id,dia:$("#td").value,hora:$("#th").value,alunoIds:[],nomes:{}};const r=await addDoc(collection(db,"classes"),d);classes.push({id:r.id,...d});draw()}
-    if(f.dataset.f==="mat"){const al=alunos.find(x=>x.id===f.dataset.uid),el=f.elements;const d={uid:al.id,aluno:al.nome,curso:el.curso.value,valor:Number(el.valor.value),inicio:el.inicio.value,ativa:true};const r=await addDoc(collection(db,"enrollments"),d);mats.push({id:r.id,...d});draw()}
+    if(f.id==="turma"){const tp=$("#tp").value;const pr=tp==="__eu"?{id:user.email.toLowerCase(),nome:user.displayName||user.email}:teachers.find(t=>t.id===tp);if(!pr){alert("Escolha o professor.");return}const d={instrumento:$("#ti").value,professor:pr.nome,profEmail:pr.id,dia:$("#td").value,hora:$("#th").value,alunoIds:[],nomes:{}};const r=await addDoc(collection(db,"classes"),d);classes.push({id:r.id,...d});draw()}
+    if(f.dataset.f==="mat"){const al=alunos.find(x=>x.id===f.dataset.uid),el=f.elements;if(mats.some(m=>m.uid===al.id&&m.ativa!==false&&m.curso===el.curso.value)&&!confirm("Este aluno já tem matrícula ativa em "+el.curso.value+". Criar outra mesmo assim?"))return;const d={uid:al.id,aluno:al.nome,curso:el.curso.value,valor:Number(el.valor.value),inicio:el.inicio.value,vencimento:Number(el.venc.value)||10,ativa:true};const r=await addDoc(collection(db,"enrollments"),d);mats.push({id:r.id,...d});draw()}
     if(f.id==="cad"){
       const ints=[...document.querySelectorAll("input[name=int]:checked")].map(x=>x.value);
       if(!ints.length){alert("Escolha pelo menos um curso.");return}
