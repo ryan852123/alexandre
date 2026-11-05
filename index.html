@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Escola de Música</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1d4ed8">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f1f5fc;--card:#fff;--ink:#0f2540;--mut:#566b85;--acc:#1d4ed8;--gold:#e0a21b;--line:#d3deee;--ok:#1b7a3d;--bad:#b3261e}
@@ -54,10 +57,10 @@ const INSTRUMENTOS=["Violão","Teclado","Bateria","Canto","Baixo","Violino"];
 
 const auth=getAuth(initializeApp(firebaseConfig)),db=getFirestore();
 const $=s=>document.querySelector(s),app=$("#app");
-const esc=s=>{const d=document.createElement("div");d.textContent=s??"";return d.innerHTML};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const br=d=>d?d.split("-").reverse().join("/"):"";
 const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],teachers=[],att={},isTeacher=false,curClass=null,curDate="",view=null,msg="";
+let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],teachers=[],att={},isTeacher=false,curClass=null,curDate="",cdia=nomeHoje(),fmes=hojeISO().slice(0,7),view=null,msg="";
 let mes=hojeISO().slice(0,7);
 
 onAuthStateChanged(auth,async u=>{
@@ -91,6 +94,16 @@ async function loadTeacher(){
 }
 function hojeISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
 const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+function nomeHoje(){return ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"][new Date().getDay()]}
+function safeLink(u){try{const x=new URL(u);return /^https?:$/.test(x.protocol)?x.href:""}catch(e){return ""}}
+function matItem(m,c,del){const l=safeLink(m.link);return `<div class="row"><div><b>${esc(m.titulo)}</b>${m.nota?`<small>${esc(m.nota)}</small>`:""}<small>${br(m.data)}${l?` · <a href="${esc(l)}" target="_blank" rel="noopener">Abrir material</a>`:""}</small></div>${del?`<button class="lnk" data-a="delmat" data-id="${c.id}" data-m="${esc(m.id)}">Remover</button>`:""}</div>`}
+const finList=()=>Object.values(pays).filter(p=>(p.pagoEm||"").slice(0,7)===fmes).sort((x,y)=>y.pagoEm.localeCompare(x.pagoEm));
+function baixarCsv(){
+  const q=v=>{v=String(v??"");if(/^[=+\-@]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'};
+  const rows=[["Data","Aluno","Curso","Formato","Valor"],...finList().map(p=>[br(p.pagoEm),p.aluno,p.curso,p.forma,Number(p.valor).toFixed(2).replace(".",",")])];
+  const blob=new Blob(["\ufeff"+rows.map(r=>r.map(q).join(";")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="financeiro-"+fmes+".csv";a.click();
+}
 function draw(){
   if(!user){app.innerHTML=`<h1>${ESCOLA}</h1><div class="staff"></div><p>Entre com sua conta Google para se cadastrar ou acompanhar suas aulas.</p>${msg?`<p class="err">${msg}</p>`:""}<button class="btn" data-a="login">Entrar com Google</button>`;return}
   if(view){app.innerHTML=reciboView(view);return}
@@ -125,11 +138,11 @@ function reciboView(p){return `<div class="rec"><h1>Recibo nº ${esc(p.recibo)}<
   <div class="box"><span><b>Aluno:</b> ${esc(p.aluno)}</span><span><b>Curso:</b> ${esc(p.curso)}</span><span><b>Referência:</b> ${nomeMes(p.mes)}</span><span><b>Valor:</b> ${brl(p.valor)}</span><span><b>Pago em:</b> ${br(p.pagoEm)}</span><span><b>Forma:</b> ${esc(p.forma)}</span></div>
   <p>Recebemos o valor acima, referente à mensalidade indicada.</p>
   <button class="btn noprint" data-a="print">Imprimir / salvar PDF</button> <button class="lnk noprint" data-a="back">Voltar</button></div>`}
-const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado","Domingo"];
 const ordDia=c=>DIAS.indexOf(c.dia)*10000+(+c.hora.replace(":",""));
 function ultimaChamada(id){return Object.values(att).filter(x=>x.classId===id).sort((x,y)=>y.date.localeCompare(x.date))[0]}
 function aulasAluno(){return classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>{const u=ultimaChamada(c.id);
-  return `<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small>${u?`<small>Última aula ${br(u.date)}: ${u.presentes.includes(user.uid)?"presente":"faltou"}${u.conteudo?" · "+esc(u.conteudo):""}</small>`:""}</div><span class="tag">${c.dia}, ${c.hora}</span></div>`}).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
+  return `<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small>${u?`<small>Última aula ${br(u.date)}: ${u.presentes.includes(user.uid)?"presente":"faltou"}${u.conteudo?" · "+esc(u.conteudo):""}</small>`:""}</div><span class="tag">${c.dia}, ${c.hora}</span></div>${(c.materiais||[]).length?`<div style="margin:-4px 0 12px 14px"><span class="sm">Material</span>${c.materiais.slice().reverse().map(m=>matItem(m,c,false)).join("")}</div>`:""}`}).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
 function aulasAdmin(apr){
   const nome=id=>esc((alunos.find(a=>a.id===id)||{}).nome||"(removido)");
   const profs=`<h2>Professores</h2>${teachers.map(t=>`<div class="row"><div><b>${esc(t.nome)}</b><small>${esc(t.id)}</small></div><button class="lnk" data-a="delp" data-id="${t.id}">Remover</button></div>`).join("")||`<div class="empty">Nenhum professor cadastrado.</div>`}<details><summary>Cadastrar professor</summary><form id="prof"><div><label for="pn">Nome</label><input id="pn" required></div><div><label for="pe">E-mail Google do professor</label><input id="pe" type="email" required></div><button class="btn" type="submit">Cadastrar</button></form></details>`;
@@ -151,12 +164,14 @@ function chamadaView(){
   <form id="chamada"><div><label for="cd">Data da aula</label><input id="cd" type="date" value="${curDate}"></div>
   ${ids.length?`<b>Presentes</b>`+ids.map(i=>`<label class="row" style="cursor:pointer"><span>${esc((c.nomes||{})[i]||"(aluno)")}</span><input type="checkbox" name="pr" value="${i}" ${!at||at.presentes.includes(i)?"checked":""} style="width:24px;height:24px"></label>`).join(""):`<div class="empty">Sem alunos nesta turma.</div>`}
   <div><label for="ct">O que foi dado / lição de casa</label><textarea id="ct" rows="3">${esc(at?at.conteudo:"")}</textarea></div>
-  <button class="btn" type="submit">Salvar chamada</button></form><h2>Últimas aulas</h2>${hist}`;
+  <button class="btn" type="submit">Salvar chamada</button></form><h2>Últimas aulas</h2>${hist}
+  <h2>Material para os alunos</h2>${(c.materiais||[]).slice().reverse().map(m=>matItem(m,c,true)).join("")||`<div class="empty">Nenhum material enviado.</div>`}
+  <details><summary>Enviar material</summary><form id="material"><div><label for="mt">Título</label><input id="mt" required></div><div><label for="ml">Link (YouTube, Drive, PDF…)</label><input id="ml" type="url" placeholder="https://"></div><div><label for="mn">Recado / instruções</label><textarea id="mn" rows="2"></textarea></div><button class="btn" type="submit">Enviar para a turma</button></form></details>`;
 }
 const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
 /* ---------- PASTOR ---------- */
 function adminView(){
-  const T=[["pend","Pendentes"],["alunos","Alunos"],["aniv","Aniversários"],["aulas","Aulas"],["pag","Pagamentos"]];
+  const T=[["pend","Pendentes"],["crono","Cronograma"],["alunos","Alunos"],["aulas","Aulas"],["pag","Pagamentos"],["fin","Financeiro"],["aniv","Aniversários"]];
   const pend=alunos.filter(a=>a.status==="pendente"),apr=alunos.filter(a=>a.status==="aprovado").sort((a,b)=>a.nome.localeCompare(b.nome));
   const tels=alunos.map(a=>(a.tel||"").replace(/\D/g,""));
   const dup=a=>tels.filter(t=>t===(a.tel||"").replace(/\D/g,"")).length>1?` <b class="no">· WhatsApp repetido</b>`:"";
@@ -170,6 +185,15 @@ function adminView(){
     body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=h.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===h.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes (a data de nascimento é opcional no cadastro).</div>`);
   }
   if(tab==="aulas")body=aulasAdmin(apr);
+  if(tab==="crono"){
+    const l=classes.filter(c=>c.dia===cdia).sort((a,b)=>a.hora.localeCompare(b.hora)),hoje=cdia===nomeHoje();
+    body=`<div class="tabs">${DIAS.map(d=>`<button data-a="cdia" data-d="${d}" aria-selected="${cdia===d}">${d}</button>`).join("")}</div>`+(l.length?l.map(c=>{const ids=c.alunoIds||[],ch=hoje&&att[c.id+"_"+hojeISO()];
+      return `<div class="row"><div><b>${c.hora} · ${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)} · ${ids.length} aluno(s)</small><small>${ids.map(i=>esc((c.nomes||{})[i]||"")).filter(Boolean).join(", ")}</small></div>${hoje?(ch?`<span class="tag ok">Chamada feita</span>`:`<span class="tag no">Sem chamada</span>`):""}</div>`}).join(""):`<div class="empty">Nenhuma aula em ${cdia}.</div>`);
+  }
+  if(tab==="fin"){
+    const l=finList(),tot=l.reduce((t,p)=>t+Number(p.valor||0),0),pf={};l.forEach(p=>pf[p.forma]=(pf[p.forma]||0)+Number(p.valor||0));
+    body=`<div class="box"><label for="fmes">Mês dos recebimentos</label><input id="fmes" type="month" value="${fmes}"><span><b>Total: ${brl(tot)}</b>${Object.keys(pf).map(k=>` · ${esc(k)} ${brl(pf[k])}`).join("")}</span><button class="btn sec" data-a="csv">Exportar planilha (CSV)</button></div><h2>Recebimentos</h2>`+(l.length?l.map(p=>`<div class="row"><div><b>${esc(p.aluno)}</b><small>${br(p.pagoEm)} · ${esc(p.curso)} · ${esc(p.forma)}</small></div><span class="tag">${brl(p.valor)}</span></div>`).join(""):`<div class="empty">Nenhum recebimento neste mês.</div>`);
+  }
   if(tab==="pag"){
     const base=mats.filter(m=>m.ativa!==false&&m.inicio.slice(0,7)<=mes),pg=base.filter(m=>pays[m.id+"_"+mes]);
     const tot=pg.reduce((t,m)=>t+Number(pays[m.id+"_"+mes].valor||0),0);
@@ -202,6 +226,9 @@ app.addEventListener("click",async e=>{
     if(a==="chamada"){curClass=id;curDate=hojeISO();draw()}
     if(a==="volta"){curClass=null;draw()}
     if(a==="delp"&&confirm("Remover este professor?")){await deleteDoc(doc(db,"teachers",id));teachers=teachers.filter(x=>x.id!==id);draw()}
+    if(a==="cdia"){cdia=b.dataset.d;draw()}
+    if(a==="csv")baixarCsv();
+    if(a==="delmat"&&confirm("Remover este material?")){const c=classes.find(x=>x.id===id),novo=(c.materiais||[]).filter(x=>x.id!==b.dataset.m);await updateDoc(doc(db,"classes",id),{materiais:novo});c.materiais=novo;draw()}
     if(a==="print")window.print();
   }catch(er){fail(er)}
 });
@@ -209,12 +236,19 @@ app.addEventListener("change",async e=>{
   const t=e.target;
   if(t.id==="mes"&&t.value){mes=t.value;draw()}
   if(t.id==="cd"&&t.value){curDate=t.value;draw()}
+  if(t.id==="fmes"&&t.value){fmes=t.value;draw()}
   if(t.dataset.a==="addst"&&t.value){try{const al=alunos.find(x=>x.id===t.value);await updateDoc(doc(db,"classes",t.dataset.id),{alunoIds:arrayUnion(t.value),["nomes."+t.value]:al.nome});const c=classes.find(x=>x.id===t.dataset.id);c.alunoIds=[...(c.alunoIds||[]),t.value];c.nomes={...(c.nomes||{}),[t.value]:al.nome};draw()}catch(er){fail(er)}}
 });
 app.addEventListener("submit",async e=>{
-  const f=e.target;if(!["turma","cad","prof","chamada"].includes(f.id)&&f.dataset.f!=="mat")return;e.preventDefault();
+  const f=e.target;if(!["turma","cad","prof","chamada","material"].includes(f.id)&&f.dataset.f!=="mat")return;e.preventDefault();
   try{
     if(f.id==="prof"){const em=$("#pe").value.trim().toLowerCase(),nm=$("#pn").value.trim();await setDoc(doc(db,"teachers",em),{nome:nm});teachers.push({id:em,nome:nm});draw()}
+    if(f.id==="material"){
+      const c=classes.find(x=>x.id===curClass),raw=$("#ml").value.trim(),lk=safeLink(raw);
+      if(raw&&!lk){alert("Link inválido. Use um endereço que comece com https://");return}
+      const m={id:Date.now().toString(36),titulo:$("#mt").value.trim(),link:lk,nota:$("#mn").value.trim(),data:hojeISO()};
+      const novo=[...(c.materiais||[]),m];await updateDoc(doc(db,"classes",c.id),{materiais:novo});c.materiais=novo;draw();
+    }
     if(f.id==="chamada"){
       const c=classes.find(x=>x.id===curClass),k=c.id+"_"+curDate,pres=[...document.querySelectorAll("input[name=pr]:checked")].map(x=>x.value);
       const d={classId:c.id,profEmail:c.profEmail,date:curDate,alunoIds:c.alunoIds||[],presentes:pres,conteudo:$("#ct").value.trim(),salvoEm:serverTimestamp()};
@@ -230,6 +264,7 @@ app.addEventListener("submit",async e=>{
     }
   }catch(er){fail(er)}
 });
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 </body>
 </html>
