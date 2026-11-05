@@ -22,7 +22,7 @@ p{margin:0 0 12px;color:var(--mut)}
 button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
 form,.box{display:grid;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 label{font-size:.9rem;font-weight:600}
-input,select{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+input,select,textarea{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 input[type=checkbox]{width:auto;margin-right:8px}
 .btn{background:var(--acc);color:var(--bg);border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}
 .btn.sec{background:none;color:var(--acc);border:1px solid var(--acc);padding:7px 12px}
@@ -44,7 +44,7 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--acc);font-weight:600}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp,addDoc,arrayUnion,arrayRemove} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp,addDoc,arrayUnion,arrayRemove,deleteField} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ====== TROQUE AQUI ======
 const firebaseConfig={apiKey:"AIzaSyAuzIOxZuc54kjU-3fw8Vt_wM09D9FuFI4",authDomain:"escola-alexandre.firebaseapp.com",projectId:"escola-alexandre",appId:"1:186501325334:web:5b76153cdd1456beda0b37"};
@@ -57,29 +57,37 @@ const $=s=>document.querySelector(s),app=$("#app");
 const esc=s=>{const d=document.createElement("div");d.textContent=s??"";return d.innerHTML};
 const br=d=>d?d.split("-").reverse().join("/"):"";
 const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],view=null,msg="";
+let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],teachers=[],att={},isTeacher=false,curClass=null,curDate="",view=null,msg="";
 let mes=hojeISO().slice(0,7);
 
 onAuthStateChanged(auth,async u=>{
   user=u;msg="";
   if(!u)return draw();
   try{isAdmin=(await getDoc(doc(db,"admins",u.email.toLowerCase()))).exists()}catch(e){isAdmin=false}
-  try{isAdmin?await loadAdmin():await loadMe()}catch(e){msg="Não foi possível carregar os dados. Verifique as regras do Firestore.";console.error(e)}
+  isTeacher=false;view=null;curClass=null;
+  if(!isAdmin){try{isTeacher=(await getDoc(doc(db,"teachers",u.email.toLowerCase()))).exists()}catch(e){isTeacher=false}}
+  try{isAdmin?await loadAdmin():isTeacher?await loadTeacher():await loadMe()}catch(e){msg="Não foi possível carregar os dados. Verifique as regras do Firestore.";console.error(e)}
   draw();
 });
 const all=async c=>(await getDocs(collection(db,c))).docs.map(d=>({id:d.id,...d.data()}));
 const mine=async(c,f,op,v)=>(await getDocs(query(collection(db,c),where(f,op,v)))).docs.map(d=>({id:d.id,...d.data()}));
 async function loadAdmin(){
-  alunos=await all("students");classes=await all("classes");mats=await all("enrollments");
+  alunos=await all("students");classes=await all("classes");mats=await all("enrollments");teachers=await all("teachers");
+  att={};(await all("attendance")).forEach(a=>att[a.id]=a);
   pays={};(await all("payments")).forEach(p=>pays[p.id]=p);
 }
 async function loadMe(){
-  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];
+  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];att={};
   if(me&&me.status==="aprovado"){
     mats=await mine("enrollments","uid","==",user.uid);
     (await mine("payments","uid","==",user.uid)).forEach(p=>pays[p.id]=p);
     classes=await mine("classes","alunoIds","array-contains",user.uid);
+    (await mine("attendance","alunoIds","array-contains",user.uid)).forEach(a=>att[a.id]=a);
   }
+}
+async function loadTeacher(){
+  const em=user.email.toLowerCase();classes=await mine("classes","profEmail","==",em);
+  att={};(await mine("attendance","profEmail","==",em)).forEach(a=>att[a.id]=a);
 }
 function hojeISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
 const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
@@ -88,7 +96,7 @@ function draw(){
   if(view){app.innerHTML=reciboView(view);return}
   const top=`<div class="top"><span>${esc(user.displayName||user.email)}</span><button class="lnk" data-a="sair">Sair</button></div>`;
   const err=msg?`<p class="err">${msg}</p>`:"";
-  app.innerHTML=top+err+(isAdmin?adminView():studentView());
+  app.innerHTML=top+err+(isAdmin?adminView():isTeacher?teacherView():studentView());
 }
 /* ---------- ALUNO ---------- */
 function studentView(){
@@ -119,14 +127,31 @@ function reciboView(p){return `<div class="rec"><h1>Recibo nº ${esc(p.recibo)}<
   <button class="btn noprint" data-a="print">Imprimir / salvar PDF</button> <button class="lnk noprint" data-a="back">Voltar</button></div>`}
 const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
 const ordDia=c=>DIAS.indexOf(c.dia)*10000+(+c.hora.replace(":",""));
-function aulasAluno(){return classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>`<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small></div><span class="tag">${c.dia}, ${c.hora}</span></div>`).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
+function ultimaChamada(id){return Object.values(att).filter(x=>x.classId===id).sort((x,y)=>y.date.localeCompare(x.date))[0]}
+function aulasAluno(){return classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>{const u=ultimaChamada(c.id);
+  return `<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small>${u?`<small>Última aula ${br(u.date)}: ${u.presentes.includes(user.uid)?"presente":"faltou"}${u.conteudo?" · "+esc(u.conteudo):""}</small>`:""}</div><span class="tag">${c.dia}, ${c.hora}</span></div>`}).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
 function aulasAdmin(apr){
   const nome=id=>esc((alunos.find(a=>a.id===id)||{}).nome||"(removido)");
-  const f=`<form id="turma"><div><label for="ti">Instrumento</label><select id="ti">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div><div><label for="tp">Professor</label><input id="tp" required></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="td">Dia</label><select id="td">${DIAS.map(d=>`<option>${d}</option>`).join("")}</select></div><div><label for="th">Horário</label><input id="th" type="time" required></div></div><button class="btn" type="submit">Criar turma</button></form>`;
+  const profs=`<h2>Professores</h2>${teachers.map(t=>`<div class="row"><div><b>${esc(t.nome)}</b><small>${esc(t.id)}</small></div><button class="lnk" data-a="delp" data-id="${t.id}">Remover</button></div>`).join("")||`<div class="empty">Nenhum professor cadastrado.</div>`}<details><summary>Cadastrar professor</summary><form id="prof"><div><label for="pn">Nome</label><input id="pn" required></div><div><label for="pe">E-mail Google do professor</label><input id="pe" type="email" required></div><button class="btn" type="submit">Cadastrar</button></form></details>`;
+  const f=`<form id="turma"><div><label for="ti">Instrumento</label><select id="ti">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div><div><label for="tp">Professor</label><select id="tp">${teachers.length?teachers.map(t=>`<option value="${esc(t.id)}">${esc(t.nome)}</option>`).join(""):`<option value="">Cadastre um professor antes</option>`}</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="td">Dia</label><select id="td">${DIAS.map(d=>`<option>${d}</option>`).join("")}</select></div><div><label for="th">Horário</label><input id="th" type="time" required></div></div><button class="btn" type="submit">Criar turma</button></form>`;
   const l=[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>{
-    const ids=c.alunoIds||[],livres=apr.filter(a=>!ids.includes(a.id));
-    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(c.instrumento)} · ${c.dia}, ${c.hora}</b><button class="lnk" data-a="delc" data-id="${c.id}">Excluir</button></div><small>Prof. ${esc(c.professor)}</small>${ids.map(i=>`<div style="display:flex;justify-content:space-between">${nome(i)}<button class="lnk" data-a="rmst" data-id="${c.id}" data-u="${i}">tirar</button></div>`).join("")||"<small>Sem alunos nesta turma.</small>"}${livres.length?`<select data-a="addst" data-id="${c.id}"><option value="">Adicionar aluno…</option>${livres.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("")}</select>`:""}</div>`}).join("");
-  return `<h2>Nova turma</h2>${f}<h2>Turmas</h2>${l||`<div class="empty">Nenhuma turma criada ainda.</div>`}`;
+    const ids=c.alunoIds||[],livres=apr.filter(a=>!ids.includes(a.id)),u=ultimaChamada(c.id);
+    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(c.instrumento)} · ${c.dia}, ${c.hora}</b><button class="lnk" data-a="delc" data-id="${c.id}">Excluir</button></div><span class="sm">Prof. ${esc(c.professor)}${u?` · última chamada ${br(u.date)}: ${u.presentes.length} de ${(u.alunoIds||[]).length} presentes`:""}</span>${ids.map(i=>`<div style="display:flex;justify-content:space-between">${nome(i)}<button class="lnk" data-a="rmst" data-id="${c.id}" data-u="${i}">tirar</button></div>`).join("")||`<span class="sm">Sem alunos nesta turma.</span>`}${livres.length?`<select data-a="addst" data-id="${c.id}"><option value="">Adicionar aluno…</option>${livres.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("")}</select>`:""}</div>`}).join("");
+  return profs+`<h2>Nova turma</h2>${f}<h2>Turmas</h2>${l||`<div class="empty">Nenhuma turma criada ainda.</div>`}`;
+}
+/* ---------- PROFESSOR ---------- */
+function teacherView(){
+  if(curClass)return chamadaView();
+  return `<h1>Minhas turmas</h1><p>Toque em uma turma para fazer a chamada.</p>`+(classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>`<button class="row" style="width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer" data-a="chamada" data-id="${c.id}"><div><b>${esc(c.instrumento)}</b><small>${(c.alunoIds||[]).length} aluno(s)</small></div><span class="tag">${c.dia}, ${c.hora}</span></button>`).join(""):`<div class="empty">Você ainda não tem turmas. O pastor vai atribuir.</div>`);
+}
+function chamadaView(){
+  const c=classes.find(x=>x.id===curClass),at=att[c.id+"_"+curDate],ids=c.alunoIds||[];
+  const hist=Object.values(att).filter(x=>x.classId===c.id).sort((x,y)=>y.date.localeCompare(x.date)).slice(0,5).map(x=>`<div class="row"><div><b>${br(x.date)}</b><small>${x.presentes.length} de ${(x.alunoIds||[]).length} presentes${x.conteudo?" · "+esc(x.conteudo):""}</small></div></div>`).join("")||`<div class="empty">Nenhuma chamada ainda.</div>`;
+  return `<button class="lnk" data-a="volta">← Turmas</button><h1>${esc(c.instrumento)}</h1><p>${c.dia}, ${c.hora}</p>
+  <form id="chamada"><div><label for="cd">Data da aula</label><input id="cd" type="date" value="${curDate}"></div>
+  ${ids.length?`<b>Presentes</b>`+ids.map(i=>`<label class="row" style="cursor:pointer"><span>${esc((c.nomes||{})[i]||"(aluno)")}</span><input type="checkbox" name="pr" value="${i}" ${!at||at.presentes.includes(i)?"checked":""} style="width:24px;height:24px"></label>`).join(""):`<div class="empty">Sem alunos nesta turma.</div>`}
+  <div><label for="ct">O que foi dado / lição de casa</label><textarea id="ct" rows="3">${esc(at?at.conteudo:"")}</textarea></div>
+  <button class="btn" type="submit">Salvar chamada</button></form><h2>Últimas aulas</h2>${hist}`;
 }
 const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
 /* ---------- PASTOR ---------- */
@@ -165,7 +190,7 @@ app.addEventListener("click",async e=>{
     if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
     if(a==="endm"&&confirm("Encerrar esta matrícula? Os recibos já emitidos continuam guardados.")){await updateDoc(doc(db,"enrollments",id),{ativa:false});mats.find(x=>x.id===id).ativa=false;draw()}
     if(a==="delc"&&confirm("Excluir esta turma?")){await deleteDoc(doc(db,"classes",id));classes=classes.filter(x=>x.id!==id);draw()}
-    if(a==="rmst"){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u)});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);draw()}
+    if(a==="rmst"){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u),["nomes."+b.dataset.u]:deleteField()});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);if(c.nomes)delete c.nomes[b.dataset.u];draw()}
     if(a==="pay"){
       const m=mats.find(x=>x.id===id),k=id+"_"+mes,forma=app.querySelector('[data-forma="'+id+'"]').value;
       const p={uid:m.uid,matId:id,aluno:m.aluno,curso:m.curso,mes,valor:m.valor,forma,pagoEm:hojeISO(),recibo:"R"+Date.now().toString(36).toUpperCase().slice(-7)};
@@ -174,18 +199,28 @@ app.addEventListener("click",async e=>{
     if(a==="unpay"&&confirm("Desfazer este pagamento? O recibo deixa de existir.")){await deleteDoc(doc(db,"payments",id));delete pays[id];draw()}
     if(a==="rec"){view=pays[id];draw();scrollTo(0,0)}
     if(a==="back"){view=null;draw()}
+    if(a==="chamada"){curClass=id;curDate=hojeISO();draw()}
+    if(a==="volta"){curClass=null;draw()}
+    if(a==="delp"&&confirm("Remover este professor?")){await deleteDoc(doc(db,"teachers",id));teachers=teachers.filter(x=>x.id!==id);draw()}
     if(a==="print")window.print();
   }catch(er){fail(er)}
 });
 app.addEventListener("change",async e=>{
   const t=e.target;
   if(t.id==="mes"&&t.value){mes=t.value;draw()}
-  if(t.dataset.a==="addst"&&t.value){try{await updateDoc(doc(db,"classes",t.dataset.id),{alunoIds:arrayUnion(t.value)});const c=classes.find(x=>x.id===t.dataset.id);c.alunoIds=[...(c.alunoIds||[]),t.value];draw()}catch(er){fail(er)}}
+  if(t.id==="cd"&&t.value){curDate=t.value;draw()}
+  if(t.dataset.a==="addst"&&t.value){try{const al=alunos.find(x=>x.id===t.value);await updateDoc(doc(db,"classes",t.dataset.id),{alunoIds:arrayUnion(t.value),["nomes."+t.value]:al.nome});const c=classes.find(x=>x.id===t.dataset.id);c.alunoIds=[...(c.alunoIds||[]),t.value];c.nomes={...(c.nomes||{}),[t.value]:al.nome};draw()}catch(er){fail(er)}}
 });
 app.addEventListener("submit",async e=>{
-  const f=e.target;if(f.id!=="turma"&&f.id!=="cad"&&f.dataset.f!=="mat")return;e.preventDefault();
+  const f=e.target;if(!["turma","cad","prof","chamada"].includes(f.id)&&f.dataset.f!=="mat")return;e.preventDefault();
   try{
-    if(f.id==="turma"){const d={instrumento:$("#ti").value,professor:$("#tp").value.trim(),dia:$("#td").value,hora:$("#th").value,alunoIds:[]};const r=await addDoc(collection(db,"classes"),d);classes.push({id:r.id,...d});draw()}
+    if(f.id==="prof"){const em=$("#pe").value.trim().toLowerCase(),nm=$("#pn").value.trim();await setDoc(doc(db,"teachers",em),{nome:nm});teachers.push({id:em,nome:nm});draw()}
+    if(f.id==="chamada"){
+      const c=classes.find(x=>x.id===curClass),k=c.id+"_"+curDate,pres=[...document.querySelectorAll("input[name=pr]:checked")].map(x=>x.value);
+      const d={classId:c.id,profEmail:c.profEmail,date:curDate,alunoIds:c.alunoIds||[],presentes:pres,conteudo:$("#ct").value.trim(),salvoEm:serverTimestamp()};
+      await setDoc(doc(db,"attendance",k),d);att[k]={id:k,...d};alert("Chamada salva!");draw();
+    }
+    if(f.id==="turma"){const tp=$("#tp").value;if(!tp){alert("Cadastre um professor antes de criar a turma.");return}const pr=teachers.find(t=>t.id===tp);const d={instrumento:$("#ti").value,professor:pr.nome,profEmail:pr.id,dia:$("#td").value,hora:$("#th").value,alunoIds:[],nomes:{}};const r=await addDoc(collection(db,"classes"),d);classes.push({id:r.id,...d});draw()}
     if(f.dataset.f==="mat"){const al=alunos.find(x=>x.id===f.dataset.uid),el=f.elements;const d={uid:al.id,aluno:al.nome,curso:el.curso.value,valor:Number(el.valor.value),inicio:el.inicio.value,ativa:true};const r=await addDoc(collection(db,"enrollments"),d);mats.push({id:r.id,...d});draw()}
     if(f.id==="cad"){
       const ints=[...document.querySelectorAll("input[name=int]:checked")].map(x=>x.value);
