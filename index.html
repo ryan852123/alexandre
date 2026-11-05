@@ -34,6 +34,9 @@ input[type=checkbox]{width:auto;margin-right:8px}
 .tag{font-weight:700}.ok{color:var(--ok)}.no{color:var(--bad)}
 .empty{border:1px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--mut)}
 .err{color:var(--bad);font-weight:600}
+.sm{display:block;color:var(--mut);font-size:.9rem}
+details{margin-top:8px}summary{cursor:pointer;color:var(--acc);font-weight:600}
+@media print{:root{--bg:#fff;--card:#fff;--ink:#000;--mut:#333;--line:#000}.noprint,.top{display:none!important}}
 </style>
 </head>
 <body>
@@ -41,7 +44,7 @@ input[type=checkbox]{width:auto;margin-right:8px}
 <script type="module">
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {getFirestore,doc,getDoc,setDoc,updateDoc,deleteDoc,collection,getDocs,query,where,serverTimestamp,addDoc,arrayUnion,arrayRemove} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 // ====== TROQUE AQUI ======
 const firebaseConfig={apiKey:"AIzaSyAuzIOxZuc54kjU-3fw8Vt_wM09D9FuFI4",authDomain:"escola-alexandre.firebaseapp.com",projectId:"escola-alexandre",appId:"1:186501325334:web:5b76153cdd1456beda0b37"};
@@ -54,8 +57,8 @@ const $=s=>document.querySelector(s),app=$("#app");
 const esc=s=>{const d=document.createElement("div");d.textContent=s??"";return d.innerHTML};
 const br=d=>d?d.split("-").reverse().join("/"):"";
 const MESES=["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,msg="";
-let mes=new Date().toISOString().slice(0,7);
+let user,isAdmin=false,tab="pend",alunos=[],pays={},me=null,classes=[],mats=[],view=null,msg="";
+let mes=hojeISO().slice(0,7);
 
 onAuthStateChanged(auth,async u=>{
   user=u;msg="";
@@ -64,18 +67,25 @@ onAuthStateChanged(auth,async u=>{
   try{isAdmin?await loadAdmin():await loadMe()}catch(e){msg="Não foi possível carregar os dados. Verifique as regras do Firestore.";console.error(e)}
   draw();
 });
+const all=async c=>(await getDocs(collection(db,c))).docs.map(d=>({id:d.id,...d.data()}));
+const mine=async(c,f,op,v)=>(await getDocs(query(collection(db,c),where(f,op,v)))).docs.map(d=>({id:d.id,...d.data()}));
 async function loadAdmin(){
-  alunos=(await getDocs(collection(db,"students"))).docs.map(d=>({id:d.id,...d.data()}));
-  pays={};(await getDocs(collection(db,"payments"))).forEach(d=>pays[d.id]=d.data().pago);
+  alunos=await all("students");classes=await all("classes");mats=await all("enrollments");
+  pays={};(await all("payments")).forEach(p=>pays[p.id]=p);
 }
 async function loadMe(){
-  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};
+  const s=await getDoc(doc(db,"students",user.uid));me=s.exists()?s.data():null;pays={};mats=[];classes=[];
   if(me&&me.status==="aprovado"){
-    (await getDocs(query(collection(db,"payments"),where("uid","==",user.uid)))).forEach(d=>pays[d.id]=d.data().pago);
+    mats=await mine("enrollments","uid","==",user.uid);
+    (await mine("payments","uid","==",user.uid)).forEach(p=>pays[p.id]=p);
+    classes=await mine("classes","alunoIds","array-contains",user.uid);
   }
 }
+function hojeISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+const brl=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 function draw(){
   if(!user){app.innerHTML=`<h1>${ESCOLA}</h1><div class="staff"></div><p>Entre com sua conta Google para se cadastrar ou acompanhar suas aulas.</p>${msg?`<p class="err">${msg}</p>`:""}<button class="btn" data-a="login">Entrar com Google</button>`;return}
+  if(view){app.innerHTML=reciboView(view);return}
   const top=`<div class="top"><span>${esc(user.displayName||user.email)}</span><button class="lnk" data-a="sair">Sair</button></div>`;
   const err=msg?`<p class="err">${msg}</p>`:"";
   app.innerHTML=top+err+(isAdmin?adminView():studentView());
@@ -84,56 +94,106 @@ function draw(){
 function studentView(){
   if(!me)return `<h1>Cadastro</h1><p>Preencha seus dados. O pastor vai aprovar seu cadastro.</p>
   <form id="cad"><div><label for="nome">Nome completo</label><input id="nome" required minlength="5" value="${esc(user.displayName)}"></div>
-  <div><label for="nasc">Data de nascimento</label><input id="nasc" type="date" required></div>
   <div><label for="tel">WhatsApp</label><input id="tel" type="tel" required placeholder="92 99999-9999"></div>
-  <div><label for="inst">Instrumento</label><select id="inst">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div>
-  <label><input id="ok" type="checkbox" required>Autorizo o uso dos meus dados pela escola apenas para organizar aulas, aniversários e pagamentos.</label>
+  <div><label for="nasc">Data de nascimento (opcional)</label><input id="nasc" type="date"></div>
+  <div><b>Cursos que você quer fazer</b>${INSTRUMENTOS.map(i=>`<label><input type="checkbox" name="int" value="${i}">${i}</label>`).join("")}</div>
+  <label><input id="ok" type="checkbox" required>Autorizo o uso dos meus dados pela escola apenas para organizar aulas e pagamentos.</label>
   <button class="btn" type="submit">Enviar cadastro</button></form>`;
   if(me.status==="pendente")return `<h1>Cadastro enviado</h1><div class="box"><b>Aguardando aprovação do pastor.</b><p>Assim que ele aprovar, você poderá ver suas informações aqui. Volte mais tarde.</p></div>`;
   if(me.status==="recusado")return `<h1>Cadastro não aprovado</h1><div class="box"><p>Fale com o pastor para entender o motivo.</p></div>`;
-  const ms=Object.keys(pays).filter(k=>k.startsWith(user.uid)).map(k=>k.split("_")[1]).sort().reverse();
+  const act=mats.filter(m=>m.ativa!==false);
   return `<h1>Olá, ${esc(me.nome.split(" ")[0])}</h1><div class="staff"></div>
-  <div class="box"><span><b>Instrumento:</b> ${esc(me.instrumento)}</span><span><b>Nascimento:</b> ${br(me.nascimento)}</span></div>
-  <h2>Pagamentos</h2>${ms.length?ms.map(m=>`<div class="row"><span>${nomeMes(m)}</span><span class="tag ${pays[user.uid+"_"+m]?"ok":"no"}">${pays[user.uid+"_"+m]?"Pago":"Pendente"}</span></div>`).join(""):`<div class="empty">Nenhum registro de pagamento ainda.</div>`}`;
+  <h2>Minhas matrículas</h2>${act.length?act.map(m=>`<div class="row"><div><b>${esc(m.curso)}</b><small>Desde ${br(m.inicio)}</small></div><span class="tag">${brl(m.valor)}/mês</span></div>`).join(""):`<div class="empty">Nenhuma matrícula ainda. O pastor vai registrar os cursos que você vai fazer.</div>`}
+  <h2>Minhas aulas</h2>${aulasAluno()}
+  <h2>Pagamentos</h2>${historico()}`;
+}
+function mesesDe(ini){const r=[],h=hojeISO().slice(0,7);let[a,m]=ini.slice(0,7).split("-").map(Number);
+  while((a+"-"+String(m).padStart(2,"0"))<=h&&r.length<60){r.push(a+"-"+String(m).padStart(2,"0"));m++;if(m>12){m=1;a++}}return r}
+function historico(){
+  const l=mats.flatMap(m=>mesesDe(m.inicio).map(mm=>({m,mm,p:pays[m.id+"_"+mm]}))).filter(x=>x.p||x.m.ativa!==false).sort((x,y)=>y.mm.localeCompare(x.mm));
+  return l.length?l.map(({m,mm,p})=>`<div class="row"><div><b>${nomeMes(mm)}</b><small>${esc(m.curso)} · ${brl(p?p.valor:m.valor)}${p?" · pago em "+br(p.pagoEm):""}</small></div>${p?`<div class="acts"><span class="tag ok">Pago</span><button class="btn sec" data-a="rec" data-id="${p.id}">Recibo</button></div>`:`<span class="tag no">Pendente</span>`}</div>`).join(""):`<div class="empty">Sem cobranças ainda.</div>`;
+}
+function reciboView(p){return `<div class="rec"><h1>Recibo nº ${esc(p.recibo)}</h1><p>${ESCOLA}</p>
+  <div class="box"><span><b>Aluno:</b> ${esc(p.aluno)}</span><span><b>Curso:</b> ${esc(p.curso)}</span><span><b>Referência:</b> ${nomeMes(p.mes)}</span><span><b>Valor:</b> ${brl(p.valor)}</span><span><b>Pago em:</b> ${br(p.pagoEm)}</span><span><b>Forma:</b> ${esc(p.forma)}</span></div>
+  <p>Recebemos o valor acima, referente à mensalidade indicada.</p>
+  <button class="btn noprint" data-a="print">Imprimir / salvar PDF</button> <button class="lnk noprint" data-a="back">Voltar</button></div>`}
+const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+const ordDia=c=>DIAS.indexOf(c.dia)*10000+(+c.hora.replace(":",""));
+function aulasAluno(){return classes.length?[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>`<div class="row"><div><b>${esc(c.instrumento)}</b><small>Prof. ${esc(c.professor)}</small></div><span class="tag">${c.dia}, ${c.hora}</span></div>`).join(""):`<div class="empty">Você ainda não está em nenhuma turma. O pastor vai te avisar.</div>`}
+function aulasAdmin(apr){
+  const nome=id=>esc((alunos.find(a=>a.id===id)||{}).nome||"(removido)");
+  const f=`<form id="turma"><div><label for="ti">Instrumento</label><select id="ti">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select></div><div><label for="tp">Professor</label><input id="tp" required></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><label for="td">Dia</label><select id="td">${DIAS.map(d=>`<option>${d}</option>`).join("")}</select></div><div><label for="th">Horário</label><input id="th" type="time" required></div></div><button class="btn" type="submit">Criar turma</button></form>`;
+  const l=[...classes].sort((a,b)=>ordDia(a)-ordDia(b)).map(c=>{
+    const ids=c.alunoIds||[],livres=apr.filter(a=>!ids.includes(a.id));
+    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(c.instrumento)} · ${c.dia}, ${c.hora}</b><button class="lnk" data-a="delc" data-id="${c.id}">Excluir</button></div><small>Prof. ${esc(c.professor)}</small>${ids.map(i=>`<div style="display:flex;justify-content:space-between">${nome(i)}<button class="lnk" data-a="rmst" data-id="${c.id}" data-u="${i}">tirar</button></div>`).join("")||"<small>Sem alunos nesta turma.</small>"}${livres.length?`<select data-a="addst" data-id="${c.id}"><option value="">Adicionar aluno…</option>${livres.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("")}</select>`:""}</div>`}).join("");
+  return `<h2>Nova turma</h2>${f}<h2>Turmas</h2>${l||`<div class="empty">Nenhuma turma criada ainda.</div>`}`;
 }
 const nomeMes=m=>{const[a,n]=m.split("-");return MESES[+n-1]+" de "+a};
 /* ---------- PASTOR ---------- */
 function adminView(){
-  const T=[["pend","Pendentes"],["alunos","Alunos"],["aniv","Aniversários"],["pag","Pagamentos"]];
+  const T=[["pend","Pendentes"],["alunos","Alunos"],["aniv","Aniversários"],["aulas","Aulas"],["pag","Pagamentos"]];
   const pend=alunos.filter(a=>a.status==="pendente"),apr=alunos.filter(a=>a.status==="aprovado").sort((a,b)=>a.nome.localeCompare(b.nome));
   const tels=alunos.map(a=>(a.tel||"").replace(/\D/g,""));
   const dup=a=>tels.filter(t=>t===(a.tel||"").replace(/\D/g,"")).length>1?` <b class="no">· WhatsApp repetido</b>`:"";
   const wa=a=>`<a href="https://wa.me/55${(a.tel||"").replace(/\D/g,"")}" target="_blank" rel="noopener">${esc(a.tel)}</a>`;
   let body="";
-  if(tab==="pend")body=pend.length?pend.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>${esc(a.instrumento)} · ${br(a.nascimento)} · ${wa(a)}${dup(a)}</small><small>${esc(a.email)}</small></div><div class="acts"><button class="btn sec" data-a="set" data-id="${a.id}" data-s="aprovado">Aprovar</button><button class="btn bad" data-a="set" data-id="${a.id}" data-s="recusado">Recusar</button></div></div>`).join(""):`<div class="empty">Nenhum cadastro esperando aprovação.</div>`;
-  if(tab==="alunos")body=apr.length?apr.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>${esc(a.instrumento)} · ${wa(a)}</small></div><button class="lnk" data-a="del" data-id="${a.id}">Remover</button></div>`).join(""):`<div class="empty">Nenhum aluno aprovado ainda.</div>`;
+  if(tab==="pend")body=pend.length?pend.map(a=>`<div class="row"><div><b>${esc(a.nome)}</b><small>Quer: ${esc((a.interesses||[]).join(", ")||"—")}</small><small>${wa(a)}${dup(a)} · ${esc(a.email)}</small></div><div class="acts"><button class="btn sec" data-a="set" data-id="${a.id}" data-s="aprovado">Aprovar</button><button class="btn bad" data-a="set" data-id="${a.id}" data-s="recusado">Recusar</button></div></div>`).join(""):`<div class="empty">Nenhum cadastro esperando aprovação.</div>`;
+  if(tab==="alunos")body=apr.length?apr.map(a=>{const ms=mats.filter(m=>m.uid===a.id&&m.ativa!==false);
+    return `<div class="box" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:8px"><div><b>${esc(a.nome)}</b><span class="sm">${wa(a)}${a.interesses&&a.interesses.length?" · quer: "+esc(a.interesses.join(", ")):""}</span></div><button class="lnk" data-a="del" data-id="${a.id}">Remover</button></div>${ms.map(m=>`<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(m.curso)} · ${brl(m.valor)}/mês · desde ${br(m.inicio)}</span><button class="lnk" data-a="endm" data-id="${m.id}">Encerrar</button></div>`).join("")||`<span class="sm">Sem matrículas.</span>`}<details><summary>Matricular em um curso</summary><form data-f="mat" data-uid="${a.id}"><select name="curso">${INSTRUMENTOS.map(i=>`<option>${i}</option>`).join("")}</select><input name="valor" type="number" step="0.01" min="0" required placeholder="Valor mensal (R$)"><div><label>Data da matrícula</label><input name="inicio" type="date" required value="${hojeISO()}"></div><button class="btn" type="submit">Matricular</button></form></details></div>`}).join(""):`<div class="empty">Nenhum aluno aprovado ainda.</div>`;
   if(tab==="aniv"){
-    const hoje=new Date(),m=hoje.getMonth()+1,l=apr.filter(a=>+a.nascimento.split("-")[1]===m).sort((a,b)=>a.nascimento.slice(8)-b.nascimento.slice(8));
-    body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=hoje.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===hoje.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes neste mês.</div>`);
+    const h=new Date(),m=h.getMonth()+1,l=apr.filter(a=>a.nascimento&&+a.nascimento.split("-")[1]===m).sort((a,b)=>a.nascimento.slice(8)-b.nascimento.slice(8));
+    body=`<h2>Aniversariantes de ${MESES[m-1]}</h2>`+(l.length?l.map(a=>{const d=+a.nascimento.slice(8),idade=h.getFullYear()-+a.nascimento.slice(0,4);return `<div class="row"><div><b>${esc(a.nome)}</b><small>Dia ${d} · ${idade} anos${d===h.getDate()?" · <b class='ok'>é hoje!</b>":""}</small></div>${wa(a)}</div>`}).join(""):`<div class="empty">Sem aniversariantes (a data de nascimento é opcional no cadastro).</div>`);
   }
+  if(tab==="aulas")body=aulasAdmin(apr);
   if(tab==="pag"){
-    const pg=apr.filter(a=>pays[a.id+"_"+mes]).length;
-    body=`<div class="box"><label for="mes">Mês</label><input id="mes" type="month" value="${mes}"><span>${pg} de ${apr.length} pagaram</span></div><h2>${nomeMes(mes)}</h2>`+(apr.length?apr.map(a=>{const p=!!pays[a.id+"_"+mes];return `<div class="row"><div><b>${esc(a.nome)}</b><small class="${p?"ok":"no"}">${p?"Pago":"Pendente"}</small></div><button class="btn sec" data-a="pay" data-id="${a.id}">${p?"Desfazer":"Marcar pago"}</button></div>`}).join(""):`<div class="empty">Aprove alunos para controlar pagamentos.</div>`);
+    const base=mats.filter(m=>m.ativa!==false&&m.inicio.slice(0,7)<=mes),pg=base.filter(m=>pays[m.id+"_"+mes]);
+    const tot=pg.reduce((t,m)=>t+Number(pays[m.id+"_"+mes].valor||0),0);
+    body=`<div class="box"><label for="mes">Mês</label><input id="mes" type="month" value="${mes}"><span>${pg.length} de ${base.length} pagaram · recebido: ${brl(tot)}</span></div><h2>${nomeMes(mes)}</h2>`+(base.length?base.map(m=>{const k=m.id+"_"+mes,p=pays[k];
+      return `<div class="row"><div><b>${esc(m.aluno)}</b><small>${esc(m.curso)} · ${brl(m.valor)}</small>${p?`<small class="ok">Pago em ${br(p.pagoEm)} · ${esc(p.forma)} · recibo ${esc(p.recibo)}</small>`:`<small class="no">Pendente</small>`}</div><div class="acts">${p?`<button class="btn sec" data-a="rec" data-id="${k}">Recibo</button><button class="lnk" data-a="unpay" data-id="${k}">Desfazer</button>`:`<select style="width:auto" data-forma="${m.id}" aria-label="Forma de pagamento"><option>Pix</option><option>Dinheiro</option><option>Cartão</option></select><button class="btn sec" data-a="pay" data-id="${m.id}">Registrar</button>`}</div></div>`}).join(""):`<div class="empty">Nenhuma matrícula ativa neste mês. Matricule alunos na aba Alunos.</div>`);
   }
   return `<h1>Painel do pastor</h1><div class="tabs" role="tablist">${T.map(t=>`<button role="tab" data-a="tab" data-t="${t[0]}" aria-selected="${tab===t[0]}">${t[1]}${t[0]==="pend"&&pend.length?` (${pend.length})`:""}</button>`).join("")}</div>${body}`;
 }
 /* ---------- EVENTOS ---------- */
+const fail=er=>{msg="Algo deu errado ("+(er.code||"erro")+"). Tente de novo.";console.error(er);draw()};
 app.addEventListener("click",async e=>{
-  const b=e.target.closest("[data-a]");if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+  const b=e.target.closest("[data-a]");if(!b||b.tagName==="SELECT")return;const a=b.dataset.a,id=b.dataset.id;
   try{
     if(a==="login")await signInWithPopup(auth,new GoogleAuthProvider());
-    if(a==="sair")await signOut(auth);
+    if(a==="sair"){view=null;await signOut(auth)}
     if(a==="tab"){tab=b.dataset.t;draw()}
     if(a==="set"){await updateDoc(doc(db,"students",id),{status:b.dataset.s});alunos.find(x=>x.id===id).status=b.dataset.s;draw()}
     if(a==="del"&&confirm("Remover este aluno?")){await deleteDoc(doc(db,"students",id));alunos=alunos.filter(x=>x.id!==id);draw()}
-    if(a==="pay"){const k=id+"_"+mes,v=!pays[k];await setDoc(doc(db,"payments",k),{uid:id,mes,pago:v});pays[k]=v;draw()}
-  }catch(er){msg="Algo deu errado ("+(er.code||"erro")+"). Tente de novo.";console.error(er);draw()}
+    if(a==="endm"&&confirm("Encerrar esta matrícula? Os recibos já emitidos continuam guardados.")){await updateDoc(doc(db,"enrollments",id),{ativa:false});mats.find(x=>x.id===id).ativa=false;draw()}
+    if(a==="delc"&&confirm("Excluir esta turma?")){await deleteDoc(doc(db,"classes",id));classes=classes.filter(x=>x.id!==id);draw()}
+    if(a==="rmst"){await updateDoc(doc(db,"classes",id),{alunoIds:arrayRemove(b.dataset.u)});const c=classes.find(x=>x.id===id);c.alunoIds=c.alunoIds.filter(x=>x!==b.dataset.u);draw()}
+    if(a==="pay"){
+      const m=mats.find(x=>x.id===id),k=id+"_"+mes,forma=app.querySelector('[data-forma="'+id+'"]').value;
+      const p={uid:m.uid,matId:id,aluno:m.aluno,curso:m.curso,mes,valor:m.valor,forma,pagoEm:hojeISO(),recibo:"R"+Date.now().toString(36).toUpperCase().slice(-7)};
+      await setDoc(doc(db,"payments",k),p);pays[k]={id:k,...p};draw();
+    }
+    if(a==="unpay"&&confirm("Desfazer este pagamento? O recibo deixa de existir.")){await deleteDoc(doc(db,"payments",id));delete pays[id];draw()}
+    if(a==="rec"){view=pays[id];draw();scrollTo(0,0)}
+    if(a==="back"){view=null;draw()}
+    if(a==="print")window.print();
+  }catch(er){fail(er)}
 });
-app.addEventListener("change",e=>{if(e.target.id==="mes"&&e.target.value){mes=e.target.value;draw()}});
+app.addEventListener("change",async e=>{
+  const t=e.target;
+  if(t.id==="mes"&&t.value){mes=t.value;draw()}
+  if(t.dataset.a==="addst"&&t.value){try{await updateDoc(doc(db,"classes",t.dataset.id),{alunoIds:arrayUnion(t.value)});const c=classes.find(x=>x.id===t.dataset.id);c.alunoIds=[...(c.alunoIds||[]),t.value];draw()}catch(er){fail(er)}}
+});
 app.addEventListener("submit",async e=>{
-  if(e.target.id!=="cad")return;e.preventDefault();
-  const d={nome:$("#nome").value.trim(),nascimento:$("#nasc").value,tel:$("#tel").value.trim(),instrumento:$("#inst").value,email:user.email,status:"pendente",criadoEm:serverTimestamp()};
-  try{await setDoc(doc(db,"students",user.uid),d);me=d;draw()}catch(er){msg="Não foi possível enviar o cadastro. Tente de novo.";console.error(er);draw()}
+  const f=e.target;if(f.id!=="turma"&&f.id!=="cad"&&f.dataset.f!=="mat")return;e.preventDefault();
+  try{
+    if(f.id==="turma"){const d={instrumento:$("#ti").value,professor:$("#tp").value.trim(),dia:$("#td").value,hora:$("#th").value,alunoIds:[]};const r=await addDoc(collection(db,"classes"),d);classes.push({id:r.id,...d});draw()}
+    if(f.dataset.f==="mat"){const al=alunos.find(x=>x.id===f.dataset.uid),el=f.elements;const d={uid:al.id,aluno:al.nome,curso:el.curso.value,valor:Number(el.valor.value),inicio:el.inicio.value,ativa:true};const r=await addDoc(collection(db,"enrollments"),d);mats.push({id:r.id,...d});draw()}
+    if(f.id==="cad"){
+      const ints=[...document.querySelectorAll("input[name=int]:checked")].map(x=>x.value);
+      if(!ints.length){alert("Escolha pelo menos um curso.");return}
+      const d={nome:$("#nome").value.trim(),nascimento:$("#nasc").value,tel:$("#tel").value.trim(),interesses:ints,email:user.email,status:"pendente",criadoEm:serverTimestamp()};
+      await setDoc(doc(db,"students",user.uid),d);me=d;draw();
+    }
+  }catch(er){fail(er)}
 });
 </script>
 </body>

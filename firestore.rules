@@ -17,6 +17,14 @@ service cloud.firestore {
                     && request.resource.data.status == 'pendente';
       allow update, delete: if admin();
     }
+    match /classes/{id} {
+      allow read: if admin() || (request.auth != null && request.auth.uid in resource.data.alunoIds);
+      allow write: if admin();
+    }
+    match /enrollments/{id} {
+      allow read: if admin() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow write: if admin();
+    }
     match /payments/{id} {
       allow read: if admin() || (request.auth != null && resource.data.uid == request.auth.uid);
       allow write: if admin();
